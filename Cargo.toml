@@ -8,7 +8,11 @@ edition = "2021"
 [dependencies]
 steamworks = "0.10.0"
 tokio = { version = "1", features = ["full"] }
-
+html-query-extractor = "0.1.1"
+html-query-ast = "0.1.1"
+serde = { version = "1.0.160", features = ["derive"] }
+serde_json = { version = "1.0.96", default-features = false }
+regex = "1.10.1"
 
 [target.'cfg(unix)']
 rustflags = ["-C", "link-arg=-Wl,-rpath,$ORIGIN"]

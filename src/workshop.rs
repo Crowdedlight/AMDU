@@ -75,7 +75,9 @@ impl Workshop {
         // get list of subscribed mods
         let list = self.get_subscribed_items();
 
+        // make signals
         let (tx, mut rx) = oneshot::channel::<Vec<QueryResult>>();
+
         let query = self.client.ugc().query_items(list);
         match query {
             Ok(item_list_query) =>
@@ -86,9 +88,7 @@ impl Workshop {
                                 // flatten to unpack all options/results and return only Some()
                                 let result = res.iter().flatten().collect();
                                 // let main thread know we are done
-                                if let Err(_) = tx.send(result) {
-                                    println!("get_subscribed_mods_info: the receiver dropped");
-                                }
+                                tx.send(result).expect("PANIC: Main thread is gone");
                             }
                             Err(e) => { println!("Error on query fetch: {:?}", e) }
                         }
@@ -105,17 +105,8 @@ impl Workshop {
 
         // call unsub
         self.client.ugc().unsubscribe_item(item_id, move |unsub_result| {
-            let result: Result<(), steamworks::SteamError>;
-            match unsub_result {
-                Ok(()) => {result = Ok(())},
-                Err(e) => {result = Err(e)}
-            }
-            if let Err(_) = tx.send(result) {
-                println!("unsub_from_mod: the receiver dropped on signal return");
-            }
+            tx.send(unsub_result).expect("PANIC: Main Thread is gone");
         });
-        return rx.await.unwrap();
+        return rx.await.unwrap(); // If we want to handle both steamerror and oneshot error, use crate AnyHow. Has result types that can easily be converted to.
     }
-
-
 }
