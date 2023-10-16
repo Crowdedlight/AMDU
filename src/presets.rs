@@ -1,28 +1,30 @@
 use std::path::{Path, PathBuf};
-use std::fs;
 use std::net::SocketAddr;
 use std::error::Error;
+use std::io;
+use std::sync::Arc;
 use html_query_ast::parse_string;
 use html_query_extractor::extract;
+use iced::futures::future::ok;
 use serde::Deserialize;
+use tokio::fs;
 
-
+#[derive(Debug, Clone)]
 pub struct Mod {
-    url: String,
-    id: u64,
-    name: String,
+    pub url: String,
+    pub id: u64,
+    pub name: String,
 }
 
+#[derive(Debug, Clone)]
 pub struct ModPreset {
-    name: String,
-    mods: Vec<Mod>,
-    file_path: String,
+    pub name: String,
+    pub mods: Vec<Mod>,
     raw_contents: String,
 }
 
 impl ModPreset {
     pub fn new(
-        file_path: String,
         raw_contents: String
     ) -> Result<Self, String> {
 
@@ -50,7 +52,7 @@ impl ModPreset {
             mods.push(Mod{url: parsed_url.to_string(), id, name: parsed_name.to_string()});
         }
 
-        Ok(ModPreset {name, mods, file_path, raw_contents})
+        Ok(ModPreset {name, mods, raw_contents})
     }
 
     pub fn get_id_list(&self) -> Vec<u64> {
@@ -58,27 +60,48 @@ impl ModPreset {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct PresetParser {
-    preset_files: Vec<String>,
     presets: Vec<ModPreset>
 }
 
 impl PresetParser {
-    pub fn new(
-        preset_files: Vec<String>,
-    ) -> Result<Self, String> {
-
-        let mut presets: Vec<ModPreset> = Vec::new();
+    pub async fn load_files_async(paths: Vec<PathBuf>) -> Result<Arc<Vec<ModPreset>>, String> {
         // todo go through each path, read file and parse into vec<ModPreset>
-        for item in &preset_files {
+        let mut presets = Vec::new();
+        for item in &paths {
             // read into string
-            let contents = fs::read_to_string(item).expect("File path doesn't exist");
+            let contents = tokio::fs::read_to_string(item).await.expect("File path doesn't exist");
             // create ModPreset object
-            let new = ModPreset::new(item.clone(), contents).expect("File parsing failed");
+            let new = ModPreset::new(contents).expect("File parsing failed");
             presets.push(new);
         }
+        Ok(Arc::new(presets))
+    }
 
-        Ok(PresetParser {preset_files, presets})
+    pub fn new() -> Self {
+        Self {presets: Vec::new()}
+    }
+
+    pub fn load_files(&mut self, paths: Vec<impl AsRef<Path>>) -> Result<(), String> {
+        // todo go through each path, read file and parse into vec<ModPreset>
+        for item in &paths {
+            // read into string
+            let contents = std::fs::read_to_string(item).expect("File path does not exist");
+            // create ModPreset object
+            let new = ModPreset::new(contents).expect("File parsing failed");
+            self.presets.push(new);
+        }
+        Ok(())
+    }
+
+    pub fn set_modpresets(&mut self, presets: Vec<ModPreset>) -> Result<(), String> {
+        self.presets = presets;
+        Ok(())
+    }
+
+    pub fn get_modpresets(&self) -> Vec<ModPreset> {
+        return self.presets.clone()
     }
 
     pub fn get_all_mod_ids_unique(&self) -> Result<Vec<u64>, String> {
