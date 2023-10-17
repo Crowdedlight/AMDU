@@ -3,10 +3,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::AtomicPtr;
 
-use iced::{Alignment, Application, Color, Command, Element, executor, Length, Settings, Theme};
+use iced::{Alignment, Application, Color, Command, Element, executor, Length, Settings, Theme, theme};
 use iced::alignment::{Horizontal, Vertical};
+use iced::font::load;
 use iced::futures::future::ok;
 use iced::futures::StreamExt;
+use iced::theme::Button;
 use iced::widget::{button, column, checkbox, container, row, scrollable, text, vertical_rule, horizontal_rule, horizontal_space, vertical_space, Text};
 use iced::widget::scrollable::{Direction, Properties};
 use steamworks::{AppId, Client, ClientManager, PublishedFileId, UGC};
@@ -95,10 +97,10 @@ impl Application for AMDU {
     fn view(&self) -> Element<'_, Message> {
 
         let load_presets = column![
-                text("Load presets you wish to keep"),
-                vertical_space(10),
+                text("Load presets you wish to keep").horizontal_alignment(Horizontal::Center).vertical_alignment(Vertical::Top),
+                vertical_space(15),
                 button("Load Presets").padding(10).on_press(Message::OpenFileDialog),
-            ].padding(10).align_items(Alignment::Center);
+            ].padding([5, 5]).align_items(Alignment::Center).height(150);
 
         // get loaded presets name only
         let p_loaded: Vec<String> = self.parser.get_modpresets().iter().map(|p| p.name.clone()).collect();
@@ -106,23 +108,40 @@ impl Application for AMDU {
             p_loaded.iter()
                 .fold(column![]
                           .spacing(6)
-                          .padding(10)
-                          .align_items(Alignment::Start),
+                          // .padding(1)
+                          .align_items(Alignment::Center)
+                          .width(Length::Fill),
                   |col, i| {
                         col.push(
-                            text(i),
+                            text(i).horizontal_alignment(Horizontal::Center),
                         )
                 })
         )
-            // .width(Length::Fill)
+            .width(Length::Fill)
+            .height(100);
             // .direction(Direction::Vertical(Properties::new().alignment(scrollable::Alignment::Start)))
-            .height(70);
+            // .height(70);
 
         let presets_loaded = column![
-                text("Loaded Presets"),
-                vertical_space(10),
+                text("Loaded Presets").horizontal_alignment(Horizontal::Center).vertical_alignment(Vertical::Top),
+                vertical_space(2),
+                horizontal_rule(2),
+                vertical_space(6),
                 scrollable_presets,
-            ].padding(10).align_items(Alignment::Start);
+            ].padding([5, 5]).align_items(Alignment::Center).height(150).max_width(220);
+
+        // todo replace with real variables
+        let mods_stats = column![
+                text(format!("Mods subscribed to:      {:>8}", 120)),
+                text(format!("Mods to be removed:     {:>8}", 20)),
+                text(format!("Space that will free up: {:>8.1} MB", 4267.5)),
+            ].padding([5, 5]).spacing(20).align_items(Alignment::Start).height(150).width(300);
+
+        let mut unsub_button = button("Unsub Selected Mods").padding([50, 20]).width(150).height(150);
+        // TODO enable if we allow unsubbing
+        // if self.selectedMods.length() > 0 {
+        //     unsub_button.on_press();
+        // }
 
         // TODO
         // let selection_list: Element<_> = column![text("test")].spacing(10);
@@ -148,11 +167,17 @@ impl Application for AMDU {
             horizontal_rule(38),
             row![
                 load_presets,
-                horizontal_space(40),
+                vertical_rule(2),
                 presets_loaded,
+                vertical_rule(2),
+                mods_stats,
+                vertical_rule(2),
+                horizontal_space(5),
+                unsub_button,
             ]
-                .spacing(10)
-                .align_items(Alignment::Center),
+                .spacing(8)
+                .align_items(Alignment::Center)
+                .height(160),
             horizontal_rule(38),
             row![
                 scrollable,
