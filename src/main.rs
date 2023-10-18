@@ -14,16 +14,21 @@ use iced::widget::scrollable::{Direction, Properties};
 use steamworks::{AppId, Client, ClientManager, PublishedFileId, UGC};
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::error::TryRecvError;
+use crate::widgets::modrow::{Message as RowMessage, ModRow};
+// use crate::mod_row::ModRow::{Message as RowMessage, ModRow};
 
-use crate::presets::{ModPreset, PresetParser};
+use crate::presets::{Mod, ModPreset, PresetParser};
 use crate::workshop::Workshop;
 
 pub mod workshop;
 pub mod presets;
+pub mod widgets;
 
 struct AMDU {
     // parser: Arc<Mutex<PresetParser>>,
     parser: PresetParser,
+    mod_selection_list: Vec<ModRow>,
+    mod_selection_index: Vec<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -32,6 +37,7 @@ enum Message {
     OpenFileDialog,
     FilesPicked(Result<Arc<Vec<PathBuf>>, Error>),
     FilesParsed(Result<Arc<Vec<ModPreset>>, String>),
+    List(usize, RowMessage),
 }
 
 impl Application for AMDU {
@@ -44,7 +50,7 @@ impl Application for AMDU {
 
         // let mut parser = Arc::new(Mutex::new(PresetParser::new()));
 
-        (Self {parser: PresetParser::new()},
+        (Self {parser: PresetParser::new(), mod_selection_list: vec![], mod_selection_index: vec![] },
          Command::none())
     }
 
@@ -82,6 +88,19 @@ impl Application for AMDU {
                     println!("{:?}", val);
                 }
 
+                // TODO debug, making list of Modrows based on mod preset and saving
+                let mut mod_rows = vec![];
+                let mut mod_index = vec![];
+                for (i, item) in self.parser.get_modpresets()[0].mods.iter().enumerate() {
+                    let row = ModRow::new(item.name.clone(), item.url.clone(), true);
+                    mod_rows.push(row);
+                    mod_index.push(i)
+                };
+                self.mod_selection_index = Vec::from_iter(0..mod_rows.len());
+                self.mod_selection_list = mod_rows;
+
+                println!("{:?}; {:?}", self.mod_selection_index.len(), self.mod_selection_list.len());
+
                 // TODO set own state with contents from preset to show in the list
                 //  should probably auto load all workshop subscribed mods when the app loads
                 //  and then automatically populate the un-needed here for the list
@@ -89,6 +108,10 @@ impl Application for AMDU {
             }
             Message::FilesParsed(Err(error)) => {
                 println!("Error on files parsed: {:?}", error);
+                Command::none()
+            }
+            Message::List(index, msg) => {
+                // TODO match on message types
                 Command::none()
             }
         }
@@ -137,27 +160,29 @@ impl Application for AMDU {
                 text(format!("Space that will free up: {:>8.1} MB", 4267.5)),
             ].padding([5, 5]).spacing(20).align_items(Alignment::Start).height(150).width(300);
 
-        let mut unsub_button = button("Unsub Selected Mods").padding([50, 20]).width(150).height(150);
+        let mut unsub_button = button(
+            row![
+                text("Unsub Selected Mods").width(Length::Fill).vertical_alignment(Vertical::Center).horizontal_alignment(Horizontal::Center)
+            ].align_items(Alignment::Center)
+        ).padding([5, 5]).width(150).height(150);
         // TODO enable if we allow unsubbing
         // if self.selectedMods.length() > 0 {
         //     unsub_button.on_press();
         // }
 
         // TODO
-        // let selection_list: Element<_> = column![text("test")].spacing(10);
+        let selection_list = self.mod_selection_index.iter().fold(column![].spacing(6), |col, i| {
+            col.push(
+                self.mod_selection_list[*i]
+                    .view()
+                    .map(move |msg| Message::List(*i, msg)))
+        });
 
-        let scrollable = scrollable(
-            column![
-                "Scroll me!",
-                vertical_space(800),
-                "You did it!"]
-                .width(Length::Fill),
-        )
+        let scrollable = scrollable(selection_list)
             .width(Length::Fill)
-            .height(100);
+            .height(Length::Fill);
 
-        let version_bar = row![horizontal_space(Length::Fill), "v0.1.0"];
-
+        let version_bar = row![horizontal_space(Length::Fill), "v0.1.0"].padding(5);
 
         let content = column![
             text("Arma3 Mod Differential Unsubscriber")
@@ -183,7 +208,7 @@ impl Application for AMDU {
                 scrollable,
             ]
             .spacing(10)
-            .height(400)
+            .height(Length::FillPortion(400))
             .align_items(Alignment::Center),
             version_bar.align_items(Alignment::End),
         ]
