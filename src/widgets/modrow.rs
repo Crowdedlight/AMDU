@@ -1,5 +1,8 @@
 use iced::widget::{button, checkbox, row, text, Space};
-use iced::{alignment, Alignment, Background, BorderRadius, color, Command, Element, Length, Renderer, Theme};
+use iced::{
+    alignment, color, Alignment, Background, BorderRadius, Command, Element, Length, Renderer,
+    Theme,
+};
 
 #[derive(Clone, Debug)]
 pub struct ModRow {
@@ -15,11 +18,7 @@ pub enum Message {
 }
 
 impl ModRow {
-    pub fn new(
-        name: String,
-        url: String,
-        selected: bool,
-    ) -> Self {
+    pub fn new(name: String, url: String, selected: bool) -> Self {
         Self {
             name: name.to_string(),
             url: url.to_string(),
@@ -37,12 +36,12 @@ impl ModRow {
         let selection_checkbox;
 
         let mut checkbox_style = checkbox::Appearance {
-            background: Background::Color(color!(0,0,0)),
-            border_color: color!(0,0,0),
+            background: Background::Color(color!(0, 0, 0)),
+            border_color: color!(0, 0, 0),
             border_radius: 5.0.into(),
             border_width: 1.0,
-            icon_color: color!(0,0,0),
-            text_color: None
+            icon_color: color!(0, 0, 0),
+            text_color: None,
         };
 
         if self.selected.clone() {
@@ -79,7 +78,7 @@ impl ModRow {
             .on_press(Message::ToggleSelection(!self.selected)),
             Space::with_width(15)
         ]
-            .align_items(Alignment::Center)
-            .into()
+        .align_items(Alignment::Center)
+        .into()
     }
 }

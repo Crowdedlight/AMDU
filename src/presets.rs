@@ -1,12 +1,12 @@
-use std::path::{Path, PathBuf};
-use std::net::SocketAddr;
-use std::error::Error;
-use std::io;
-use std::sync::Arc;
 use html_query_ast::parse_string;
 use html_query_extractor::extract;
 use iced::futures::future::ok;
 use serde::Deserialize;
+use std::error::Error;
+use std::io;
+use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::fs;
 
 #[derive(Debug, Clone)]
@@ -24,10 +24,7 @@ pub struct ModPreset {
 }
 
 impl ModPreset {
-    pub fn new(
-        raw_contents: String
-    ) -> Result<Self, String> {
-
+    pub fn new(raw_contents: String) -> Result<Self, String> {
         // vector storing mod_ids
         let mut mods = Vec::new();
 
@@ -36,7 +33,9 @@ impl ModPreset {
         let name_output = extract(raw_contents.as_str(), &name_parse);
         let name = name_output["name"].as_str().unwrap().to_string();
 
-        let parsed = parse_string("{mods: [data-type=ModContainer]| [ {name: td, url: a | @(href)} ] }").expect("parse expression failed");
+        let parsed =
+            parse_string("{mods: [data-type=ModContainer]| [ {name: td, url: a | @(href)} ] }")
+                .expect("parse expression failed");
         let output = extract(raw_contents.as_str(), &parsed);
         let mods_list = output["mods"].as_array().unwrap();
         // loop through items
@@ -46,13 +45,25 @@ impl ModPreset {
             let parsed_url = val["url"].as_str().unwrap();
 
             // trim the prefix, the leftover is id
-            let id = parsed_url.strip_prefix("https://steamcommunity.com/sharedfiles/filedetails/?id=").unwrap().parse::<u64>().unwrap();
+            let id = parsed_url
+                .strip_prefix("https://steamcommunity.com/sharedfiles/filedetails/?id=")
+                .unwrap()
+                .parse::<u64>()
+                .unwrap();
 
             // store in vector
-            mods.push(Mod{url: parsed_url.to_string(), id, name: parsed_name.to_string()});
+            mods.push(Mod {
+                url: parsed_url.to_string(),
+                id,
+                name: parsed_name.to_string(),
+            });
         }
 
-        Ok(ModPreset {name, mods, raw_contents})
+        Ok(ModPreset {
+            name,
+            mods,
+            raw_contents,
+        })
     }
 
     pub fn get_id_list(&self) -> Vec<u64> {
@@ -62,7 +73,7 @@ impl ModPreset {
 
 #[derive(Debug, Clone)]
 pub struct PresetParser {
-    presets: Vec<ModPreset>
+    presets: Vec<ModPreset>,
 }
 
 impl PresetParser {
@@ -71,7 +82,9 @@ impl PresetParser {
         let mut presets = Vec::new();
         for item in &paths {
             // read into string
-            let contents = tokio::fs::read_to_string(item).await.expect("File path doesn't exist");
+            let contents = tokio::fs::read_to_string(item)
+                .await
+                .expect("File path doesn't exist");
             // create ModPreset object
             let new = ModPreset::new(contents).expect("File parsing failed");
             presets.push(new);
@@ -80,7 +93,9 @@ impl PresetParser {
     }
 
     pub fn new() -> Self {
-        Self {presets: Vec::new()}
+        Self {
+            presets: Vec::new(),
+        }
     }
 
     pub fn load_files(&mut self, paths: Vec<impl AsRef<Path>>) -> Result<(), String> {
@@ -101,7 +116,7 @@ impl PresetParser {
     }
 
     pub fn get_modpresets(&self) -> Vec<ModPreset> {
-        return self.presets.clone()
+        return self.presets.clone();
     }
 
     pub fn get_all_mod_ids_unique(&self) -> Result<Vec<u64>, String> {
