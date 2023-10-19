@@ -13,7 +13,7 @@ pub struct Workshop {
 }
 
 impl Workshop {
-    pub async fn new(
+    pub fn new(
         app_id: steamworks::AppId,
     ) -> Result<Self, String> {
 

@@ -76,7 +76,7 @@ impl ModRow {
             //     style::Button::NormalPackage
             // })
             .width(Length::Fill)
-            .on_press(Message::ModPressed),
+            .on_press(Message::ToggleSelection(!self.selected)),
             Space::with_width(15)
         ]
             .align_items(Alignment::Center)

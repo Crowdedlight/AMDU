@@ -26,9 +26,11 @@ pub mod widgets;
 
 struct AMDU {
     // parser: Arc<Mutex<PresetParser>>,
+    workshop: Arc<Workshop>,
     parser: PresetParser,
     mod_selection_list: Vec<ModRow>,
     mod_selection_index: Vec<usize>,
+    workshop_subbed_mods: Vec<Mod>,
 }
 
 #[derive(Debug, Clone)]
@@ -38,6 +40,9 @@ enum Message {
     FilesPicked(Result<Arc<Vec<PathBuf>>, Error>),
     FilesParsed(Result<Arc<Vec<ModPreset>>, String>),
     List(usize, RowMessage),
+    UnsubSelected,
+    SubscribedModsFetched(Result<Arc<Vec<Mod>>, oneshot::error::RecvError>),
+    Init(Result<(), String>),
 }
 
 impl Application for AMDU {
@@ -50,8 +55,8 @@ impl Application for AMDU {
 
         // let mut parser = Arc::new(Mutex::new(PresetParser::new()));
 
-        (Self {parser: PresetParser::new(), mod_selection_list: vec![], mod_selection_index: vec![] },
-         Command::none())
+        (Self {workshop: Arc::new(Workshop::new(AppId(107410)).unwrap()), parser: PresetParser::new(), mod_selection_list: vec![], mod_selection_index: vec![], workshop_subbed_mods: vec![] },
+         Command::perform(init(), Message::Init))
     }
 
     fn title(&self) -> String {
@@ -60,6 +65,15 @@ impl Application for AMDU {
 
     fn update(&mut self, message: Self::Message) -> Command<Message> {
         match message {
+            Message::Init(Ok(result)) => {
+                // init called as app is started
+                Command::perform(load_subscribed_mods(self.workshop), Message::SubscribedModsFetched);
+                Command::none()
+            }
+            Message::Init(Err(e)) => {
+                // todo error?
+                Command::none()
+            }
             Message::OpenFileDialog => {
                 println!("opening file dialog btn pressed");
                 Command::perform(pick_files(), Message::FilesPicked)
@@ -111,14 +125,38 @@ impl Application for AMDU {
                 Command::none()
             }
             Message::List(index, msg) => {
-                // TODO match on message types
+                match msg {
+                    RowMessage::ToggleSelection(toggle) => {
+                        self.mod_selection_list[index.clone()].selected = toggle;
+                        return Command::none();
+                    }
+                    RowMessage::ModPressed => {
+                        // we do the same as toggle selection
+                        self.mod_selection_list[index.clone()].selected = !self.mod_selection_list[index.clone()].selected.clone();
+
+                        return Command::none();
+                    }
+                }
+            }
+            Message::SubscribedModsFetched(result) => {
+                return match result {
+                    Ok(mods) => {
+                        self.workshop_subbed_mods = mods.to_vec();
+                        Command::none()
+                    },
+                    Err(e) => {
+                        Command::none()
+                    }
+                }
+            }
+            Message::UnsubSelected => {
+                // unsub selected mods, gotta do a filter on vec<modrow> first for selected and then likely map into vec<mod>
                 Command::none()
             }
         }
     }
 
     fn view(&self) -> Element<'_, Message> {
-
         let load_presets = column![
                 text("Load presets you wish to keep").horizontal_alignment(Horizontal::Center).vertical_alignment(Vertical::Top),
                 vertical_space(15),
@@ -134,16 +172,16 @@ impl Application for AMDU {
                           // .padding(1)
                           .align_items(Alignment::Center)
                           .width(Length::Fill),
-                  |col, i| {
-                        col.push(
-                            text(i).horizontal_alignment(Horizontal::Center),
-                        )
-                })
+                      |col, i| {
+                          col.push(
+                              text(i).horizontal_alignment(Horizontal::Center),
+                          )
+                      })
         )
             .width(Length::Fill)
             .height(100);
-            // .direction(Direction::Vertical(Properties::new().alignment(scrollable::Alignment::Start)))
-            // .height(70);
+        // .direction(Direction::Vertical(Properties::new().alignment(scrollable::Alignment::Start)))
+        // .height(70);
 
         let presets_loaded = column![
                 text("Loaded Presets").horizontal_alignment(Horizontal::Center).vertical_alignment(Vertical::Top),
@@ -154,9 +192,12 @@ impl Application for AMDU {
             ].padding([5, 5]).align_items(Alignment::Center).height(150).max_width(220);
 
         // todo replace with real variables
+        let selected_mods_count = self.mod_selection_list.iter().filter(|item| item.selected).count();
+        // let subscribed_mods_count = self.workshop.get_subscribed_items().len();
+
         let mods_stats = column![
-                text(format!("Mods subscribed to:      {:>8}", 120)),
-                text(format!("Mods to be removed:     {:>8}", 20)),
+                text(format!("Mods subscribed to:      {:>8}", self.workshop_subbed_mods.len())),
+                text(format!("Mods to be removed:     {:>8}", selected_mods_count)),
                 text(format!("Space that will free up: {:>8.1} MB", 4267.5)),
             ].padding([5, 5]).spacing(20).align_items(Alignment::Start).height(150).width(300);
 
@@ -165,10 +206,16 @@ impl Application for AMDU {
                 text("Unsub Selected Mods").width(Length::Fill).vertical_alignment(Vertical::Center).horizontal_alignment(Horizontal::Center)
             ].align_items(Alignment::Center)
         ).padding([5, 5]).width(150).height(150);
-        // TODO enable if we allow unsubbing
-        // if self.selectedMods.length() > 0 {
-        //     unsub_button.on_press();
-        // }
+            // .on_press(
+            //     if self.mod_selection_list.len() > 0 {
+            //         Message::UnsubSelected;
+            //     } else {
+            //         None;
+            //     });
+
+        if self.mod_selection_list.len() > 0 {
+            unsub_button = unsub_button.on_press(Message::UnsubSelected);
+        }
 
         // TODO
         let selection_list = self.mod_selection_index.iter().fold(column![].spacing(6), |col, i| {
@@ -232,7 +279,7 @@ impl Application for AMDU {
 #[derive(Debug, Clone)]
 enum Error {
     DialogClosed,
-    IO(io::ErrorKind)
+    IO(io::ErrorKind),
 }
 
 async fn pick_files() -> Result<Arc<Vec<PathBuf>>, Error> {
@@ -246,24 +293,23 @@ async fn pick_files() -> Result<Arc<Vec<PathBuf>>, Error> {
     let vector_paths = paths.iter()
         .map(|handle| handle.path().to_path_buf())
         .collect();
-    return Ok(Arc::new(vector_paths))
+    return Ok(Arc::new(vector_paths));
     // let arc: Arc<[Path]> = vector_paths.into()
 }
 
+async fn init() -> Result<(), String>{
+    // run when created, for init code
+    return Ok(());
+}
+
+async fn load_subscribed_mods(workshop: Arc<Workshop>) -> Result<Arc<Vec<Mod>>, oneshot::error::RecvError> {
+    let mods = workshop.get_subscribed_mods_info().await.unwrap();
+    let formatted_mods = mods.iter().map(|result| Mod {id: result.published_file_id.0.clone(), url: result.url.clone(), name: result.title.clone()}).collect();
+    return Ok(Arc::new(formatted_mods))
+}
 
 pub fn main() -> iced::Result {
-
     AMDU::run(Settings::default())
-
-
-
-
-
-
-
-
-
-
 
 
     // parse presets
