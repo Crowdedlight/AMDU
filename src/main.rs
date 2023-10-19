@@ -1,3 +1,6 @@
+#![deny(clippy::all)]
+
+use std::collections::BTreeSet;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicPtr;
@@ -77,17 +80,28 @@ impl Application for AMDU {
 
     fn update(&mut self, message: Self::Message) -> Command<Message> {
         match message {
-            Message::Init(Ok(result)) => {
+            Message::Init(Ok(_)) => {
                 // init called as app is started
+                println!("Init called");
                 Command::perform(
-                    load_subscribed_mods(self.workshop),
+                    load_subscribed_mods(self.workshop.clone()),
                     Message::SubscribedModsFetched,
-                );
-                Command::none()
+                )
             }
             Message::Init(Err(e)) => {
                 // todo error?
+                println!("init: Error {:?}", e);
                 Command::none()
+            }
+            Message::SubscribedModsFetched(result) => {
+                println!("Got subscribed mods: {:?}", result.as_ref());
+                return match result {
+                    Ok(mods) => {
+                        self.workshop_subbed_mods = mods.to_vec();
+                        Command::none()
+                    }
+                    Err(e) => Command::none(),
+                }
             }
             Message::OpenFileDialog => {
                 println!("opening file dialog btn pressed");
@@ -121,9 +135,16 @@ impl Application for AMDU {
                 }
 
                 // TODO debug, making list of Modrows based on mod preset and saving
+                // TODO command::perform for function to take both vectors and return diff
+                // self.parser.get_modpresets()
+
+                // get diff
+                let diff_mods = calculate_diff_mods(self.parser.get_modpresets(), self.workshop_subbed_mods.clone());
+
+
                 let mut mod_rows = vec![];
                 let mut mod_index = vec![];
-                for (i, item) in self.parser.get_modpresets()[0].mods.iter().enumerate() {
+                for (i, item) in diff_mods.iter().enumerate() {
                     let row = ModRow::new(item.name.clone(), item.url.clone(), true);
                     mod_rows.push(row);
                     mod_index.push(i)
@@ -159,15 +180,6 @@ impl Application for AMDU {
 
                         return Command::none();
                     }
-                }
-            }
-            Message::SubscribedModsFetched(result) => {
-                return match result {
-                    Ok(mods) => {
-                        self.workshop_subbed_mods = mods.to_vec();
-                        Command::none()
-                    }
-                    Err(e) => Command::none(),
                 }
             }
             Message::UnsubSelected => {
@@ -367,6 +379,7 @@ async fn load_subscribed_mods(
     workshop: Arc<Workshop>,
 ) -> Result<Arc<Vec<Mod>>, oneshot::error::RecvError> {
     let mods = workshop.get_subscribed_mods_info().await.unwrap();
+    println!("mods: {:?}", mods);
     let formatted_mods = mods
         .iter()
         .map(|result| Mod {
@@ -376,6 +389,17 @@ async fn load_subscribed_mods(
         })
         .collect();
     return Ok(Arc::new(formatted_mods));
+}
+
+fn calculate_diff_mods(keep_sets: Vec<ModPreset>, mut all_mods: Vec<Mod>) -> Vec<Mod>
+    where
+        Mod: std::cmp::Ord,
+{
+    let combined_keep_mods: Vec<_> = keep_sets.iter().map(|item| item.mods.clone()).flatten().collect();
+    let to_remove = BTreeSet::from_iter(combined_keep_mods);
+
+    all_mods.retain(|e| !to_remove.contains(e));
+    return all_mods
 }
 
 pub fn main() -> iced::Result {

@@ -94,12 +94,10 @@ impl Workshop {
     ) -> Result<Vec<QueryResult>, oneshot::error::RecvError> {
         // get list of subscribed mods
         let list = self.get_subscribed_items();
-
         // make signals
         let (tx, mut rx) = oneshot::channel::<Vec<QueryResult>>();
 
-        let query = self.client.ugc().query_items(list);
-        match query {
+        match self.client.ugc().query_items(list) {
             Ok(item_list_query) => {
                 item_list_query.fetch(move |query_result| {
                     match query_result {
@@ -108,6 +106,7 @@ impl Workshop {
                             let result = res.iter().flatten().collect();
                             // let main thread know we are done
                             tx.send(result).expect("PANIC: Main thread is gone");
+                            println!("Result sent...");
                         }
                         Err(e) => {
                             println!("Error on query fetch: {:?}", e)
@@ -119,7 +118,9 @@ impl Workshop {
                 println!("Error on making subscribed items query")
             }
         }
-        return rx.await;
+        let result = rx.await;
+        println!("Finished waiting");
+        return result;
     }
 
     pub async fn unsub_from_mod(
