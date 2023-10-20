@@ -1,15 +1,18 @@
 use std::fmt::format;
 use std::sync::mpsc::RecvError;
+use std::sync::{mpsc, Arc};
 use steamworks::{AppId, Client, ClientManager, PublishedFileId, QueryResult, UGC};
+use tokio::select;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::error::TryRecvError;
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 
 pub struct Workshop {
     app_id: steamworks::AppId,
     client: steamworks::Client,
     thread: JoinHandle<()>,
-    thread_shutdown_signal: oneshot::Sender<u8>,
+    pub thread_shutdown_signal: CancellationToken,
 }
 
 impl Workshop {
@@ -31,27 +34,19 @@ impl Workshop {
         }
 
         // make thread for callback running
-        let (thread_shutdown_signal, mut rx) = oneshot::channel::<u8>();
+        let token = CancellationToken::new();
+        let cloned_token = token.clone();
+
         // create a thread for callbacks
-        // if you have an active loop (like in a game), you can skip this and just run the callbacks on update
         let thread = tokio::spawn(async move {
             loop {
                 // run callbacks
                 single.run_callbacks();
                 std::thread::sleep(std::time::Duration::from_millis(100));
 
-                // check if the channel is closed or if there is a message
-                // end the thread if either is true
-                match rx.try_recv() {
-                    Ok(msg) => {
-                        println!("Received Exit-signal: {:?}, breaking callback thread", msg);
-                        break;
-                    }
-                    Err(TryRecvError::Empty) => {}
-                    Err(_) => {
-                        println!("callback thread exiting: the sender dropped");
-                        break;
-                    }
+                if cloned_token.is_cancelled() {
+                    println!("Received Exit-signal breaking callback thread");
+                    break;
                 }
             }
         });
@@ -60,18 +55,8 @@ impl Workshop {
             app_id,
             client,
             thread,
-            thread_shutdown_signal,
+            thread_shutdown_signal: token,
         })
-    }
-
-    pub async fn stop_cb_thread(self) {
-        // we are dropping, so exit our spawned thead
-        self.thread_shutdown_signal
-            .send(1)
-            .expect("Error on dropping workshop callback thread");
-        self.thread
-            .await
-            .expect("Error on joining workshop callback thread");
     }
 
     pub fn client(&self) -> &steamworks::Client {
@@ -94,8 +79,9 @@ impl Workshop {
     ) -> Result<Vec<QueryResult>, oneshot::error::RecvError> {
         // get list of subscribed mods
         let list = self.get_subscribed_items();
-        // make signals
-        let (tx, mut rx) = oneshot::channel::<Vec<QueryResult>>();
+
+        // make signals, not using tokio as that apperently didn't work with this closure...
+        let (sender, receiver) = mpsc::channel();
 
         match self.client.ugc().query_items(list) {
             Ok(item_list_query) => {
@@ -103,10 +89,11 @@ impl Workshop {
                     match query_result {
                         Ok(res) => {
                             // flatten to unpack all options/results and return only Some()
-                            let result = res.iter().flatten().collect();
+                            let result: Vec<QueryResult> = res.iter().flatten().collect();
                             // let main thread know we are done
-                            tx.send(result).expect("PANIC: Main thread is gone");
-                            println!("Result sent...");
+                            sender
+                                .send(result.clone())
+                                .expect("PANIC: Main thread is gone");
                         }
                         Err(e) => {
                             println!("Error on query fetch: {:?}", e)
@@ -118,9 +105,7 @@ impl Workshop {
                 println!("Error on making subscribed items query")
             }
         }
-        let result = rx.await;
-        println!("Finished waiting");
-        return result;
+        return Ok(receiver.recv().unwrap());
     }
 
     pub async fn unsub_from_mod(
@@ -137,5 +122,11 @@ impl Workshop {
                 tx.send(unsub_result).expect("PANIC: Main Thread is gone");
             });
         return rx.await.unwrap(); // If we want to handle both steamerror and oneshot error, use crate AnyHow. Has result types that can easily be converted to.
+    }
+}
+
+impl Drop for Workshop {
+    fn drop(&mut self) {
+        self.thread_shutdown_signal.cancel();
     }
 }

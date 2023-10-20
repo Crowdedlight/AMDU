@@ -2,23 +2,28 @@
 
 use std::collections::BTreeSet;
 use std::io;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicPtr;
 use std::sync::{Arc, Mutex};
 
 use crate::widgets::modrow::{Message as RowMessage, ModRow};
 use iced::alignment::{Horizontal, Vertical};
+use iced::event::{self, Event};
 use iced::font::load;
 use iced::futures::future::ok;
 use iced::futures::StreamExt;
+use iced::subscription::events;
 use iced::theme::Button;
+use iced::theme::Svg::Default;
 use iced::widget::scrollable::{Direction, Properties};
 use iced::widget::{
     button, checkbox, column, container, horizontal_rule, horizontal_space, row, scrollable, text,
     vertical_rule, vertical_space, Text,
 };
 use iced::{
-    executor, theme, Alignment, Application, Color, Command, Element, Length, Settings, Theme,
+    executor, theme, window, Alignment, Application, Color, Command, Element, Length, Settings,
+    Subscription, Theme,
 };
 use steamworks::{AppId, Client, ClientManager, PublishedFileId, UGC};
 use tokio::sync::oneshot;
@@ -43,7 +48,7 @@ struct AMDU {
 
 #[derive(Debug, Clone)]
 enum Message {
-    // FilesOpened(Result<PresetParser, String>),
+    EventOccurred(Event),
     OpenFileDialog,
     FilesPicked(Result<Arc<Vec<PathBuf>>, Error>),
     FilesParsed(Result<Arc<Vec<ModPreset>>, String>),
@@ -78,8 +83,21 @@ impl Application for AMDU {
         String::from("AMDU")
     }
 
+    fn subscription(&self) -> Subscription<Message> {
+        events().map(Message::EventOccurred)
+    }
+
     fn update(&mut self, message: Self::Message) -> Command<Message> {
         match message {
+            Message::EventOccurred(event) => {
+                // if window close event, we drop workshop as this will trigger cleanup for the spawned thread there
+                if let Event::Window(window::Event::CloseRequested) = event {
+                    self.workshop.thread_shutdown_signal.cancel();
+                    window::close()
+                } else {
+                    Command::none()
+                }
+            }
             Message::Init(Ok(_)) => {
                 // init called as app is started
                 println!("Init called");
@@ -101,7 +119,7 @@ impl Application for AMDU {
                         Command::none()
                     }
                     Err(e) => Command::none(),
-                }
+                };
             }
             Message::OpenFileDialog => {
                 println!("opening file dialog btn pressed");
@@ -130,27 +148,26 @@ impl Application for AMDU {
                 // save parsed to own state
                 self.parser.set_modpresets(data.to_vec()).unwrap();
 
-                for val in self.parser.get_modpresets() {
-                    println!("{:?}", val);
-                }
-
                 // TODO debug, making list of Modrows based on mod preset and saving
                 // TODO command::perform for function to take both vectors and return diff
                 // self.parser.get_modpresets()
 
-                // get diff
-                let diff_mods = calculate_diff_mods(self.parser.get_modpresets(), self.workshop_subbed_mods.clone());
-
+                // TODO Should probably call a message in some way as "UpdateDiff()" as we want to redo the diff when sub is refreshed, or preset is reloaded
+                // get diff, not calling as async as this is just straight vector diff and thus quick
+                let diff_mods = calculate_diff_mods(
+                    self.parser.get_modpresets(),
+                    self.workshop_subbed_mods.clone(),
+                );
 
                 let mut mod_rows = vec![];
-                let mut mod_index = vec![];
+                // let mut mod_index = vec![];
                 for (i, item) in diff_mods.iter().enumerate() {
                     let row = ModRow::new(item.name.clone(), item.url.clone(), true);
                     mod_rows.push(row);
-                    mod_index.push(i)
+                    // mod_index.push(i)
                 }
-                self.mod_selection_index = Vec::from_iter(0..mod_rows.len());
                 self.mod_selection_list = mod_rows;
+                // self.mod_selection_index = Vec::from_iter(0..mod_rows.len());
 
                 println!(
                     "{:?}; {:?}",
@@ -285,17 +302,16 @@ impl Application for AMDU {
             unsub_button = unsub_button.on_press(Message::UnsubSelected);
         }
 
-        // TODO
-        let selection_list =
-            self.mod_selection_index
-                .iter()
-                .fold(column![].spacing(6), |col, i| {
-                    col.push(
-                        self.mod_selection_list[*i]
-                            .view()
-                            .map(move |msg| Message::List(*i, msg)),
-                    )
-                });
+        let selection_list = self.mod_selection_list.iter().enumerate().fold(
+            column![].spacing(6),
+            |col, (i, item)| {
+                col.push(
+                    self.mod_selection_list[i]
+                        .view()
+                        .map(move |msg| Message::List(i, msg)),
+                )
+            },
+        );
 
         let scrollable = scrollable(selection_list)
             .width(Length::Fill)
@@ -379,12 +395,13 @@ async fn load_subscribed_mods(
     workshop: Arc<Workshop>,
 ) -> Result<Arc<Vec<Mod>>, oneshot::error::RecvError> {
     let mods = workshop.get_subscribed_mods_info().await.unwrap();
-    println!("mods: {:?}", mods);
     let formatted_mods = mods
         .iter()
+        .filter(|item| !item.tags.contains(&"Scenario".to_owned()))
         .map(|result| Mod {
             id: result.published_file_id.0.clone(),
             url: result.url.clone(),
+            tags: result.tags.clone(),
             name: result.title.clone(),
         })
         .collect();
@@ -392,18 +409,25 @@ async fn load_subscribed_mods(
 }
 
 fn calculate_diff_mods(keep_sets: Vec<ModPreset>, mut all_mods: Vec<Mod>) -> Vec<Mod>
-    where
-        Mod: std::cmp::Ord,
+where
+    Mod: std::cmp::Ord,
 {
-    let combined_keep_mods: Vec<_> = keep_sets.iter().map(|item| item.mods.clone()).flatten().collect();
+    let combined_keep_mods: Vec<_> = keep_sets
+        .iter()
+        .map(|item| item.mods.clone())
+        .flatten()
+        .collect();
     let to_remove = BTreeSet::from_iter(combined_keep_mods);
 
     all_mods.retain(|e| !to_remove.contains(e));
-    return all_mods
+    return all_mods;
 }
 
 pub fn main() -> iced::Result {
-    AMDU::run(Settings::default())
+    AMDU::run(Settings {
+        exit_on_close_request: false,
+        ..Settings::default()
+    })
 
     // parse presets
     // let input = vec!["C:\\Users\\crow\\Documents\\Github\\amdu\\test\\test.html".to_string()];

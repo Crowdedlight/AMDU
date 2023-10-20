@@ -2,6 +2,7 @@ use html_query_ast::parse_string;
 use html_query_extractor::extract;
 use iced::futures::future::ok;
 use serde::Deserialize;
+use std::cmp::Ordering;
 use std::error::Error;
 use std::io;
 use std::net::SocketAddr;
@@ -9,11 +10,30 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::fs;
 
-#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Mod {
+    pub tags: Vec<String>,
     pub url: String,
     pub id: u64,
     pub name: String,
+}
+impl PartialEq for Mod {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+impl Eq for Mod {}
+
+impl Ord for Mod {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.name.cmp(&other.name)
+    }
+}
+
+impl PartialOrd for Mod {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -53,6 +73,7 @@ impl ModPreset {
 
             // store in vector
             mods.push(Mod {
+                tags: vec![],
                 url: parsed_url.to_string(),
                 id,
                 name: parsed_name.to_string(),
