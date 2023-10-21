@@ -4,19 +4,14 @@ use std::collections::BTreeSet;
 use std::io;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicPtr;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use crate::widgets::modrow::{Message as RowMessage, ModRow};
 use iced::alignment::{Horizontal, Vertical};
 use iced::event::{self, Event};
-use iced::font::load;
-use iced::futures::future::ok;
 use iced::futures::StreamExt;
 use iced::subscription::events;
-use iced::theme::Button;
-use iced::theme::Svg::Default;
-use iced::widget::scrollable::{Direction, Properties};
 use iced::widget::{
     button, checkbox, column, container, horizontal_rule, horizontal_space, row, scrollable, text,
     vertical_rule, vertical_space, Text,
@@ -61,6 +56,7 @@ enum Message {
     Init(Result<(), String>),
     ToggleAll,
     UnsubbedSelectedMods(Result<(), String>),
+    UpdateSelectionView(Arc<Vec<Mod>>),
 }
 
 impl Application for AMDU {
@@ -120,66 +116,29 @@ impl Application for AMDU {
                 return match result {
                     Ok(mods) => {
                         self.workshop_subbed_mods = mods.to_vec();
-                        Command::perform(
-                            calculate_local_file_size(
-                                self.workshop_subbed_mods.clone(),
-                                self.workshop.clone(),
+
+                        Command::batch(vec![
+                            Command::perform(
+                                calculate_local_file_size(
+                                    self.workshop_subbed_mods.clone(),
+                                    self.workshop.clone(),
+                                ),
+                                Message::LocalFileSizeFetched,
                             ),
-                            Message::LocalFileSizeFetched,
-                        )
+                            Command::perform(
+                                calculate_diff_mods(
+                                    self.parser.get_modpresets(),
+                                    self.workshop_subbed_mods.clone(),
+                                ),
+                                Message::UpdateSelectionView,
+                            ),
+                        ])
                     }
                     Err(e) => Command::none(),
                 };
             }
-            Message::LocalFileSizeFetched(result) => {
-                return match result {
-                    Ok(mods) => {
-                        self.workshop_subbed_mods = mods.to_vec();
-                        Command::none()
-                    }
-                    Err(e) => {
-                        println!("Failed fetching local install sizes");
-                        Command::none()
-                    }
-                }
-            }
-            Message::OpenFileDialog => {
-                println!("opening file dialog btn pressed");
-                Command::perform(pick_files(), Message::FilesPicked)
-            }
-            Message::FilesPicked(Ok(content)) => {
-                for val in content.iter() {
-                    println!("{:?}", val);
-                }
-                // let self_clone = Arc::clone(&self.parser);
-                // Command::perform(self_clone.lock().unwrap().load_files(content.to_vec()), Message::FilesParsed);
-                // TODO figure out how to do it as command and async... Caused heaps of issues to call a self member function async...
-                //  I cannot mutate Parser in async command, however I can get it to respond with the results of the command, so in this case it would respond with a Vec<ModPreset>, that I can then save in the state...
-                // let result = self.parser.load_files(content.to_vec());
-                Command::perform(
-                    PresetParser::load_files_async(content.to_vec()),
-                    Message::FilesParsed,
-                )
-            }
-            Message::FilesPicked(Err(error)) => {
-                println!("Error on files picked: {:?}", error);
-
-                Command::none()
-            }
-            Message::FilesParsed(Ok(data)) => {
-                // save parsed to own state
-                self.parser.set_modpresets(data.to_vec()).unwrap();
-
-                // TODO debug, making list of Modrows based on mod preset and saving
-                // TODO command::perform for function to take both vectors and return diff
-                // self.parser.get_modpresets()
-
-                // TODO Should probably call a message in some way as "UpdateDiff()" as we want to redo the diff when sub is refreshed, or preset is reloaded
+            Message::UpdateSelectionView(diff_mods) => {
                 // get diff, not calling as async as this is just straight vector diff and thus quick
-                let diff_mods = calculate_diff_mods(
-                    self.parser.get_modpresets(),
-                    self.workshop_subbed_mods.clone(),
-                );
 
                 let mut mod_rows = vec![];
                 for (i, item) in diff_mods.iter().enumerate() {
@@ -194,10 +153,57 @@ impl Application for AMDU {
                 }
                 self.mod_selection_list = mod_rows;
 
-                // TODO set own state with contents from preset to show in the list
-                //  should probably auto load all workshop subscribed mods when the app loads
-                //  and then automatically populate the un-needed here for the list
                 Command::none()
+            }
+            Message::LocalFileSizeFetched(result) => {
+                return match result {
+                    Ok(mods) => {
+                        self.workshop_subbed_mods = mods.to_vec();
+                        // as we have updated data source now, update selection view by recalc
+                        Command::perform(
+                            calculate_diff_mods(
+                                self.parser.get_modpresets(),
+                                self.workshop_subbed_mods.clone(),
+                            ),
+                            Message::UpdateSelectionView,
+                        )
+                    }
+                    Err(e) => {
+                        println!("Failed fetching local install sizes");
+                        Command::none()
+                    }
+                };
+            }
+            Message::OpenFileDialog => {
+                println!("opening file dialog btn pressed");
+                Command::perform(pick_files(), Message::FilesPicked)
+            }
+            Message::FilesPicked(Ok(content)) => {
+                for val in content.iter() {
+                    println!("{:?}", val);
+                }
+
+                Command::perform(
+                    PresetParser::load_files_async(content.to_vec()),
+                    Message::FilesParsed,
+                )
+            }
+            Message::FilesPicked(Err(error)) => {
+                println!("Error on files picked: {:?}", error);
+
+                Command::none()
+            }
+            Message::FilesParsed(Ok(data)) => {
+                // save parsed to own state
+                self.parser.set_modpresets(data.to_vec()).unwrap();
+
+                Command::perform(
+                    calculate_diff_mods(
+                        self.parser.get_modpresets(),
+                        self.workshop_subbed_mods.clone(),
+                    ),
+                    Message::UpdateSelectionView,
+                )
             }
             Message::FilesParsed(Err(error)) => {
                 println!("Error on files parsed: {:?}", error);
@@ -222,14 +228,10 @@ impl Application for AMDU {
                 unsub_selected_mods(self.mod_selection_list.clone(), self.workshop.clone()),
                 Message::UnsubbedSelectedMods,
             ),
-            Message::UnsubbedSelectedMods(result) => {
-                // TODO right now we only perform the mod sub again, we don't actully sync the diff. We should move diff out of parsed-files, and call it whenever
-                //  preset, or subscribed-mods are updated. Adding a check if preset files are parsed, otherwise just exit
-                Command::perform(
-                    load_subscribed_mods(self.workshop.clone()),
-                    Message::SubscribedModsFetched,
-                )
-            }
+            Message::UnsubbedSelectedMods(result) => Command::perform(
+                load_subscribed_mods(self.workshop.clone()),
+                Message::SubscribedModsFetched,
+            ),
             Message::ToggleAll => {
                 // toggle state
                 self.toggle_all_state = !self.toggle_all_state;
@@ -294,7 +296,7 @@ impl Application for AMDU {
         .height(150)
         .max_width(220);
 
-        // todo replace with real variables
+        // stats
         let selected_mods_count = self
             .mod_selection_list
             .iter()
@@ -469,19 +471,30 @@ async fn load_subscribed_mods(
     return Ok(Arc::new(formatted_mods));
 }
 
-fn calculate_diff_mods(keep_sets: Vec<ModPreset>, mut all_mods: Vec<Mod>) -> Vec<Mod>
+async fn calculate_diff_mods(keep_sets: Vec<ModPreset>, all_mods: Vec<Mod>) -> Arc<Vec<Mod>>
 where
     Mod: std::cmp::Ord,
 {
+    // if we have empty all_mods, we should return empty diff
+    if keep_sets.len() <= 0 {
+        return Arc::new(all_mods);
+    }
+
     let combined_keep_mods: Vec<_> = keep_sets
         .iter()
         .map(|item| item.mods.clone())
         .flatten()
         .collect();
-    let to_remove = BTreeSet::from_iter(combined_keep_mods);
+    let keep_mods_set = BTreeSet::from_iter(combined_keep_mods);
 
-    all_mods.retain(|e| !to_remove.contains(e));
-    return all_mods;
+    let mut diff_mods: Vec<Mod> = all_mods.clone();
+    diff_mods.sort();
+    diff_mods.retain(|e| !keep_mods_set.contains(e));
+
+    // sleep we need due to bug on windows causing some batch commands not run if return too fast: https://github.com/iced-rs/iced/issues/436
+    tokio::time::sleep(Duration::from_millis(2)).await;
+
+    return Arc::new(diff_mods);
 }
 
 async fn calculate_local_file_size(
@@ -502,6 +515,8 @@ async fn calculate_local_file_size(
             }
         }
     }
+    // sleep we need due to bug on windows causing some batch commands not run if return too fast: https://github.com/iced-rs/iced/issues/436
+    tokio::time::sleep(Duration::from_millis(2)).await;
 
     return Ok(Arc::new(mods));
 }
