@@ -16,6 +16,7 @@ regex = "1.10.1"
 iced = {version = "0.10.0", features = ["tokio", "debug"] }
 rfd = "0.12.0"
 tokio-util = "0.7.9"
+humansize = "2.0.0"
 
 [target.'cfg(unix)']
 rustflags = ["-C", "link-arg=-Wl,-rpath,$ORIGIN"]

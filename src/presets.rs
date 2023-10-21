@@ -16,6 +16,7 @@ pub struct Mod {
     pub url: String,
     pub id: u64,
     pub name: String,
+    pub local_filesize: u64,
 }
 impl PartialEq for Mod {
     fn eq(&self, other: &Self) -> bool {
@@ -77,6 +78,7 @@ impl ModPreset {
                 url: parsed_url.to_string(),
                 id,
                 name: parsed_name.to_string(),
+                local_filesize: 0,
             });
         }
 

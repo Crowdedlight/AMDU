@@ -113,15 +113,17 @@ impl Workshop {
         item_id: PublishedFileId,
     ) -> Result<(), steamworks::SteamError> {
         // create signals
-        let (tx, mut rx) = oneshot::channel::<Result<(), steamworks::SteamError>>();
+        let (sender, receiver) = mpsc::channel();
 
         // call unsub
         self.client
             .ugc()
             .unsubscribe_item(item_id, move |unsub_result| {
-                tx.send(unsub_result).expect("PANIC: Main Thread is gone");
+                sender
+                    .send(unsub_result)
+                    .expect("PANIC: Main thread is gone");
             });
-        return rx.await.unwrap(); // If we want to handle both steamerror and oneshot error, use crate AnyHow. Has result types that can easily be converted to.
+        return receiver.recv().unwrap(); // If we want to handle both steamerror and oneshot error, use crate AnyHow. Has result types that can easily be converted to.
     }
 }
 

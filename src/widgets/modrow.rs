@@ -1,3 +1,4 @@
+use humansize::{format_size, DECIMAL};
 use iced::widget::{button, checkbox, row, text, Space};
 use iced::{
     alignment, color, Alignment, Background, BorderRadius, Command, Element, Length, Renderer,
@@ -6,8 +7,10 @@ use iced::{
 
 #[derive(Clone, Debug)]
 pub struct ModRow {
+    pub id: u64,
     pub name: String,
     pub url: String,
+    pub file_size: u64,
     pub selected: bool,
 }
 
@@ -18,10 +21,12 @@ pub enum Message {
 }
 
 impl ModRow {
-    pub fn new(name: String, url: String, selected: bool) -> Self {
+    pub fn new(id: u64, name: String, url: String, file_size: u64, selected: bool) -> Self {
         Self {
+            id,
             name: name.to_string(),
             url: url.to_string(),
+            file_size,
             selected,
         }
     }
@@ -64,6 +69,11 @@ impl ModRow {
                 row![
                     text(&self.name).width(Length::FillPortion(8)),
                     text(&self.url).width(Length::FillPortion(8)),
+                    text(format!(
+                        "File Size: {}",
+                        format_size(self.file_size, DECIMAL)
+                    ))
+                    .width(Length::FillPortion(8)),
                     selection_checkbox,
                 ]
                 .align_items(Alignment::Center)

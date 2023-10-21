@@ -28,7 +28,8 @@ use iced::{
 use steamworks::{AppId, Client, ClientManager, PublishedFileId, UGC};
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::error::TryRecvError;
-// use crate::mod_row::ModRow::{Message as RowMessage, ModRow};
+
+use humansize::{format_size, DECIMAL};
 
 use crate::presets::{Mod, ModPreset, PresetParser};
 use crate::workshop::Workshop;
@@ -44,6 +45,7 @@ struct AMDU {
     mod_selection_list: Vec<ModRow>,
     mod_selection_index: Vec<usize>,
     workshop_subbed_mods: Vec<Mod>,
+    toggle_all_state: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -55,7 +57,10 @@ enum Message {
     List(usize, RowMessage),
     UnsubSelected,
     SubscribedModsFetched(Result<Arc<Vec<Mod>>, oneshot::error::RecvError>),
+    LocalFileSizeFetched(Result<Arc<Vec<Mod>>, String>),
     Init(Result<(), String>),
+    ToggleAll,
+    UnsubbedSelectedMods(Result<(), String>),
 }
 
 impl Application for AMDU {
@@ -74,6 +79,7 @@ impl Application for AMDU {
                 mod_selection_list: vec![],
                 mod_selection_index: vec![],
                 workshop_subbed_mods: vec![],
+                toggle_all_state: true,
             },
             Command::perform(init(), Message::Init),
         )
@@ -100,7 +106,6 @@ impl Application for AMDU {
             }
             Message::Init(Ok(_)) => {
                 // init called as app is started
-                println!("Init called");
                 Command::perform(
                     load_subscribed_mods(self.workshop.clone()),
                     Message::SubscribedModsFetched,
@@ -112,14 +117,31 @@ impl Application for AMDU {
                 Command::none()
             }
             Message::SubscribedModsFetched(result) => {
-                println!("Got subscribed mods: {:?}", result.as_ref());
+                return match result {
+                    Ok(mods) => {
+                        self.workshop_subbed_mods = mods.to_vec();
+                        Command::perform(
+                            calculate_local_file_size(
+                                self.workshop_subbed_mods.clone(),
+                                self.workshop.clone(),
+                            ),
+                            Message::LocalFileSizeFetched,
+                        )
+                    }
+                    Err(e) => Command::none(),
+                };
+            }
+            Message::LocalFileSizeFetched(result) => {
                 return match result {
                     Ok(mods) => {
                         self.workshop_subbed_mods = mods.to_vec();
                         Command::none()
                     }
-                    Err(e) => Command::none(),
-                };
+                    Err(e) => {
+                        println!("Failed fetching local install sizes");
+                        Command::none()
+                    }
+                }
             }
             Message::OpenFileDialog => {
                 println!("opening file dialog btn pressed");
@@ -160,20 +182,17 @@ impl Application for AMDU {
                 );
 
                 let mut mod_rows = vec![];
-                // let mut mod_index = vec![];
                 for (i, item) in diff_mods.iter().enumerate() {
-                    let row = ModRow::new(item.name.clone(), item.url.clone(), true);
+                    let row = ModRow::new(
+                        item.id.clone(),
+                        item.name.clone(),
+                        item.url.clone(),
+                        item.local_filesize.clone(),
+                        true,
+                    );
                     mod_rows.push(row);
-                    // mod_index.push(i)
                 }
                 self.mod_selection_list = mod_rows;
-                // self.mod_selection_index = Vec::from_iter(0..mod_rows.len());
-
-                println!(
-                    "{:?}; {:?}",
-                    self.mod_selection_index.len(),
-                    self.mod_selection_list.len()
-                );
 
                 // TODO set own state with contents from preset to show in the list
                 //  should probably auto load all workshop subscribed mods when the app loads
@@ -199,8 +218,27 @@ impl Application for AMDU {
                     }
                 }
             }
-            Message::UnsubSelected => {
-                // unsub selected mods, gotta do a filter on vec<modrow> first for selected and then likely map into vec<mod>
+            Message::UnsubSelected => Command::perform(
+                unsub_selected_mods(self.mod_selection_list.clone(), self.workshop.clone()),
+                Message::UnsubbedSelectedMods,
+            ),
+            Message::UnsubbedSelectedMods(result) => {
+                // TODO right now we only perform the mod sub again, we don't actully sync the diff. We should move diff out of parsed-files, and call it whenever
+                //  preset, or subscribed-mods are updated. Adding a check if preset files are parsed, otherwise just exit
+                Command::perform(
+                    load_subscribed_mods(self.workshop.clone()),
+                    Message::SubscribedModsFetched,
+                )
+            }
+            Message::ToggleAll => {
+                // toggle state
+                self.toggle_all_state = !self.toggle_all_state;
+
+                // update selection
+                for val in self.mod_selection_list.iter_mut() {
+                    val.selected = self.toggle_all_state;
+                }
+
                 Command::none()
             }
         }
@@ -262,18 +300,34 @@ impl Application for AMDU {
             .iter()
             .filter(|item| item.selected)
             .count();
-        // let subscribed_mods_count = self.workshop.get_subscribed_items().len();
+        let subscribed_mods_local_size_sum: u64 = self
+            .mod_selection_list
+            .iter()
+            .filter(|item| item.selected)
+            .map(|item| item.file_size)
+            .sum();
 
         let mods_stats = column![
-            text(format!(
-                "Mods subscribed to:      {:>8}",
-                self.workshop_subbed_mods.len()
-            )),
-            text(format!(
-                "Mods to be removed:     {:>8}",
-                selected_mods_count
-            )),
-            text(format!("Space that will free up: {:>8.1} MB", 4267.5)),
+            row![
+                text("Mods subscribed to:").width(Length::FillPortion(5)),
+                text(format!("{:}", self.workshop_subbed_mods.len()))
+                    .horizontal_alignment(Horizontal::Right),
+            ]
+            .align_items(Alignment::Start)
+            .spacing(30),
+            row![
+                text("Mods to be removed:").width(Length::FillPortion(5)),
+                text(format!("{:}", selected_mods_count)).horizontal_alignment(Horizontal::Right),
+            ]
+            .align_items(Alignment::Start)
+            .spacing(30),
+            row![
+                text("Space that will free up:").width(Length::FillPortion(5)),
+                text(format_size(subscribed_mods_local_size_sum, DECIMAL))
+                    .horizontal_alignment(Horizontal::Right),
+            ]
+            .align_items(Alignment::Start)
+            .spacing(30),
         ]
         .padding([5, 5])
         .spacing(20)
@@ -291,12 +345,6 @@ impl Application for AMDU {
         .padding([5, 5])
         .width(150)
         .height(150);
-        // .on_press(
-        //     if self.mod_selection_list.len() > 0 {
-        //         Message::UnsubSelected;
-        //     } else {
-        //         None;
-        //     });
 
         if self.mod_selection_list.len() > 0 {
             unsub_button = unsub_button.on_press(Message::UnsubSelected);
@@ -317,12 +365,24 @@ impl Application for AMDU {
             .width(Length::Fill)
             .height(Length::Fill);
 
-        let version_bar = row![horizontal_space(Length::Fill), "v0.1.0"].padding(5);
+        let bottom_bar = row![
+            button("Toggle All")
+                .padding(10)
+                .on_press(Message::ToggleAll),
+            horizontal_space(Length::Fill),
+            "v0.1.0"
+        ]
+        .padding(5);
 
         let content = column![
             text("Arma3 Mod Differential Unsubscriber")
                 .width(Length::Fill)
                 .size(40)
+                .horizontal_alignment(Horizontal::Center)
+                .vertical_alignment(Vertical::Top),
+            text("(Does not include subscribed scenarios)")
+                .width(Length::Fill)
+                .size(15)
                 .horizontal_alignment(Horizontal::Center)
                 .vertical_alignment(Vertical::Top),
             horizontal_rule(38),
@@ -344,9 +404,9 @@ impl Application for AMDU {
                 .spacing(10)
                 .height(Length::FillPortion(400))
                 .align_items(Alignment::Center),
-            version_bar.align_items(Alignment::End),
+            bottom_bar.align_items(Alignment::Start),
         ]
-        .spacing(20)
+        .spacing(5)
         .padding(20)
         .align_items(Alignment::Start);
 
@@ -403,6 +463,7 @@ async fn load_subscribed_mods(
             url: result.url.clone(),
             tags: result.tags.clone(),
             name: result.title.clone(),
+            local_filesize: 0,
         })
         .collect();
     return Ok(Arc::new(formatted_mods));
@@ -423,53 +484,42 @@ where
     return all_mods;
 }
 
+async fn calculate_local_file_size(
+    mut mods: Vec<Mod>,
+    workshop: Arc<Workshop>,
+) -> Result<Arc<Vec<Mod>>, String> {
+    // loop through vectors and ask per mod
+    for val in mods.iter_mut() {
+        match workshop.get_item_install_info(PublishedFileId(val.id)) {
+            Some(result) => {
+                val.local_filesize = result.size_on_disk;
+            }
+            None => {
+                println!(
+                    "Could not find mod locally installed with id: {:?}",
+                    val.name
+                )
+            }
+        }
+    }
+
+    return Ok(Arc::new(mods));
+}
+
+async fn unsub_selected_mods(mods: Vec<ModRow>, workshop: Arc<Workshop>) -> Result<(), String> {
+    for val in mods.iter().filter(|item| item.selected) {
+        match workshop.unsub_from_mod(PublishedFileId(val.id)).await {
+            // TODO make subscription for return. Idea is we show progress bar while going through it, and on each ok/err we publish progress?
+            Ok(_) => {}
+            Err(e) => {}
+        }
+    }
+    Ok(())
+}
+
 pub fn main() -> iced::Result {
     AMDU::run(Settings {
         exit_on_close_request: false,
         ..Settings::default()
     })
-
-    // parse presets
-    // let input = vec!["C:\\Users\\crow\\Documents\\Github\\amdu\\test\\test.html".to_string()];
-    // let presets = PresetParser::new(input).expect("Failed parsing files into presets");
-    // let ids = presets.get_all_mod_ids_unique().unwrap();
-    // println!("{:?}", ids);
-
-    // create workshop
-    // let ws = Workshop::new(AppId(107410)).await.unwrap();
-    //
-    // // various test callls
-    // let utils = ws.client().utils();
-    // println!("Utils:");
-    // println!("AppId: {:?}", utils.app_id());
-    // println!("UI Language: {}", utils.ui_language());
-    //
-    // let apps = ws.client().apps();
-    // println!("Apps");
-    // println!("IsInstalled(107410): {}", apps.is_app_installed(AppId(107410)));
-    // println!("InstallDir(107410): {}", apps.app_install_dir(AppId(107410)));
-    // println!("BuildId: {}", apps.app_build_id());
-    // println!("AppOwner: {:?}", apps.app_owner());
-    // println!("Langs: {:?}", apps.available_game_languages());
-    // println!("Lang: {}", apps.current_game_language());
-    // println!("Beta: {:?}", apps.current_beta_name());
-
-    // let all_subbed_mods = ws.get_subscribed_mods_info().await.expect("PANIC: error returning allmods result from callback thread to main thread");
-    // for item in all_subbed_mods {
-    //     let filesize_on_disk = ws.get_item_install_info(item.published_file_id).unwrap();
-    //     println!("ID: {:?}, Titel: {:?}, file_size: {:.1}MB, file_size_disk: {:.1}MB", item.published_file_id.0, item.title, (item.file_size as f64 / 1e6), (filesize_on_disk.size_on_disk as f64 / 1e6))
-    // };
-
-    // unsubscribe from a mod // Deformer as test mod: 2822758266 - https://steamcommunity.com/workshop/filedetails/?id=2822758266
-    // let unsub_result = ws.unsub_from_mod(PublishedFileId(28)).await;
-    // match unsub_result {
-    //     Ok(_) => {println!("Unsubbed successfully from: {:?}", 28 as u32)},
-    //     Err(e) => println!("Error unsubbing from mod id: {:?}, error: {:?}", 28 as u32, e)
-    // };
-
-    // TODO add function that returns the mod IDs that you are subscribed to, but doesn't exist on the workshop anymore?
-    //  would be a combo of getting "subscribed items", and either doing a query per to see what returns info, alternative we could compare "allmods" id list with "get subscribed items" list. Any ids not present in both, is unavailable mod.
-
-    // drop struct to finish dangling threads
-    // ws.stop_cb_thread().await;
 }
