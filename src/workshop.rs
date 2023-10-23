@@ -18,7 +18,7 @@ pub struct Workshop {
 impl Workshop {
     pub fn new(app_id: steamworks::AppId) -> Result<Self, String> {
         // try to initialize client
-        let client_result = Client::init();
+        let client_result = Client::init_app(app_id);
         if client_result.is_err() {
             return Err("Failed to initialize steam client".to_string());
         }
