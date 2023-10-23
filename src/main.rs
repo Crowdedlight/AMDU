@@ -4,8 +4,9 @@ use std::collections::BTreeSet;
 use std::io;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::widgets::modrow::{Message as RowMessage, ModRow};
 use iced::alignment::{Horizontal, Vertical};
@@ -13,12 +14,12 @@ use iced::event::{self, Event};
 use iced::futures::StreamExt;
 use iced::subscription::events;
 use iced::widget::{
-    button, checkbox, column, container, horizontal_rule, horizontal_space, row, scrollable, text,
-    vertical_rule, vertical_space, Text,
+    button, checkbox, column, container, horizontal_rule, horizontal_space, progress_bar, row,
+    scrollable, text, vertical_rule, vertical_space, Text,
 };
 use iced::{
-    executor, theme, window, Alignment, Application, Color, Command, Element, Length, Settings,
-    Subscription, Theme,
+    executor, theme, time, window, Alignment, Application, Color, Command, Element, Length,
+    Settings, Subscription, Theme,
 };
 use steamworks::{AppId, Client, ClientManager, PublishedFileId, UGC};
 use tokio::sync::oneshot;
@@ -41,6 +42,9 @@ struct AMDU {
     mod_selection_index: Vec<usize>,
     workshop_subbed_mods: Vec<Mod>,
     toggle_all_state: bool,
+    unsub_in_progress: bool,
+    unsub_total_count: u32,
+    unsub_progress: Arc<AtomicU32>,
 }
 
 #[derive(Debug, Clone)]
@@ -50,11 +54,12 @@ enum Message {
     FilesPicked(Result<Arc<Vec<PathBuf>>, Error>),
     FilesParsed(Result<Arc<Vec<ModPreset>>, String>),
     List(usize, RowMessage),
-    UnsubSelected,
     SubscribedModsFetched(Result<Arc<Vec<Mod>>, oneshot::error::RecvError>),
     LocalFileSizeFetched(Result<Arc<Vec<Mod>>, String>),
     Init(Result<(), String>),
     ToggleAll,
+    UnsubSelected,
+    UnsubProgress(Instant),
     UnsubbedSelectedMods(Result<(), String>),
     UpdateSelectionView(Arc<Vec<Mod>>),
 }
@@ -76,6 +81,9 @@ impl Application for AMDU {
                 mod_selection_index: vec![],
                 workshop_subbed_mods: vec![],
                 toggle_all_state: true,
+                unsub_in_progress: false,
+                unsub_total_count: 0,
+                unsub_progress: Arc::new(AtomicU32::new(0)),
             },
             Command::perform(init(), Message::Init),
         )
@@ -86,7 +94,14 @@ impl Application for AMDU {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        events().map(Message::EventOccurred)
+        Subscription::batch(vec![
+            events().map(Message::EventOccurred),
+            // this is not the most optimal way to do it, but the polling ticker only runs during unsub progress... so should be fine
+            match self.unsub_in_progress {
+                false => Subscription::none(),
+                true => time::every(Duration::from_millis(10)).map(Message::UnsubProgress),
+            },
+        ])
     }
 
     fn update(&mut self, message: Self::Message) -> Command<Message> {
@@ -224,14 +239,35 @@ impl Application for AMDU {
                     }
                 }
             }
-            Message::UnsubSelected => Command::perform(
-                unsub_selected_mods(self.mod_selection_list.clone(), self.workshop.clone()),
-                Message::UnsubbedSelectedMods,
-            ),
-            Message::UnsubbedSelectedMods(result) => Command::perform(
-                load_subscribed_mods(self.workshop.clone()),
-                Message::SubscribedModsFetched,
-            ),
+            Message::UnsubSelected => {
+                self.unsub_in_progress = true;
+                self.unsub_total_count = self
+                    .mod_selection_list
+                    .iter()
+                    .filter(|item| item.selected)
+                    .count() as u32;
+
+                Command::perform(
+                    unsub_selected_mods(
+                        self.mod_selection_list.clone(),
+                        self.workshop.clone(),
+                        self.unsub_progress.clone(),
+                    ),
+                    Message::UnsubbedSelectedMods,
+                )
+            }
+            Message::UnsubbedSelectedMods(result) => {
+                self.unsub_in_progress = false;
+                Command::perform(
+                    load_subscribed_mods(self.workshop.clone()),
+                    Message::SubscribedModsFetched,
+                )
+            }
+            Message::UnsubProgress(now) => {
+                // self.unsub_progress = *progress;
+                // just ticking gui update...
+                Command::none()
+            }
             Message::ToggleAll => {
                 // toggle state
                 self.toggle_all_state = !self.toggle_all_state;
@@ -363,9 +399,30 @@ impl Application for AMDU {
             },
         );
 
-        let scrollable = scrollable(selection_list)
-            .width(Length::Fill)
-            .height(Length::Fill);
+        let scrollable: Element<Message> = match self.unsub_in_progress {
+            false => scrollable(selection_list)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into(),
+            true => column![
+                text(format!(
+                    "Unsubbing mod {} out of {}...",
+                    self.unsub_progress.load(Ordering::Relaxed),
+                    self.unsub_total_count
+                ))
+                .size(30)
+                .horizontal_alignment(Horizontal::Center)
+                .vertical_alignment(Vertical::Top),
+                progress_bar(
+                    0.0..=self.unsub_total_count as f32,
+                    self.unsub_progress.load(Ordering::Relaxed) as f32
+                )
+            ]
+            .spacing(5)
+            .align_items(Alignment::Center)
+            .padding(10)
+            .into(),
+        };
 
         let bottom_bar = row![
             button("Toggle All")
@@ -402,7 +459,7 @@ impl Application for AMDU {
             .align_items(Alignment::Center)
             .height(160),
             horizontal_rule(38),
-            row![scrollable,]
+            row![scrollable]
                 .spacing(10)
                 .height(Length::FillPortion(400))
                 .align_items(Alignment::Center),
@@ -521,8 +578,15 @@ async fn calculate_local_file_size(
     return Ok(Arc::new(mods));
 }
 
-async fn unsub_selected_mods(mods: Vec<ModRow>, workshop: Arc<Workshop>) -> Result<(), String> {
-    for val in mods.iter().filter(|item| item.selected) {
+async fn unsub_selected_mods(
+    mods: Vec<ModRow>,
+    workshop: Arc<Workshop>,
+    mut progress: Arc<AtomicU32>,
+) -> Result<(), String> {
+    for (i, val) in mods.iter().filter(|item| item.selected).enumerate() {
+        // for every loop we add one to progress to show what mod we are currently unsubbing
+        progress.fetch_add(1, Ordering::Relaxed);
+
         match workshop.unsub_from_mod(PublishedFileId(val.id)).await {
             // TODO make subscription for return. Idea is we show progress bar while going through it, and on each ok/err we publish progress?
             Ok(_) => {}
