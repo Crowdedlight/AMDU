@@ -24,8 +24,6 @@ use iced::{
 };
 use steamworks::{AppId, Client, ClientManager, PublishedFileId, UGC};
 use tokio::sync::oneshot;
-use tokio::sync::oneshot::error::TryRecvError;
-
 use humansize::{format_size, DECIMAL};
 
 use crate::presets::{Mod, ModPreset, PresetParser};
@@ -34,6 +32,8 @@ use crate::workshop::Workshop;
 pub mod presets;
 pub mod widgets;
 pub mod workshop;
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 struct AMDU {
     // parser: Arc<Mutex<PresetParser>>,
@@ -424,7 +424,7 @@ impl Application for AMDU {
                 .padding(10)
                 .on_press(Message::ToggleAll),
             horizontal_space(Length::Fill),
-            "v0.1.0"
+            text(format!("v{}", VERSION)).vertical_alignment(Vertical::Bottom)
         ]
         .padding(5);
 
