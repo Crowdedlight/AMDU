@@ -1,9 +1,11 @@
 use html_query_ast::parse_string;
 use html_query_extractor::extract;
 use iced::futures::future::ok;
+use regex::{Match, Regex};
 use serde::Deserialize;
 use std::cmp::Ordering;
 use std::error::Error;
+use std::ffi::OsStr;
 use std::io;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -45,32 +47,45 @@ pub struct ModPreset {
 }
 
 impl ModPreset {
-    pub fn new(raw_contents: String) -> Result<Self, String> {
+    pub fn new(raw_contents: String, filename: Option<&OsStr>) -> Result<Self, String> {
         // vector storing mod_ids
         let mut mods = Vec::new();
 
         // parse raw contents
         let name_parse = parse_string("{name: strong}").expect("parse expression failed");
         let name_output = extract(raw_contents.as_str(), &name_parse);
-        let name = name_output["name"].as_str().unwrap().to_string();
+
+        // if name doens't exist, we use filename?
+        let name;
+        match name_output["name"].as_str() {
+            Some(str) => name = str,
+            None => name = filename.unwrap().to_str().unwrap(),
+        }
 
         let parsed =
             parse_string("{mods: [data-type=ModContainer]| [ {name: td, url: a | @(href)} ] }")
                 .expect("parse expression failed");
         let output = extract(raw_contents.as_str(), &parsed);
         let mods_list = output["mods"].as_array().unwrap();
+
+        //regex build
+        let re = Regex::new(r"(?<id>\d{4,})").unwrap();
+
         // loop through items
         for val in mods_list {
             // name
             let parsed_name = val["name"].as_str().unwrap();
             let parsed_url = val["url"].as_str().unwrap();
 
-            // trim the prefix, the leftover is id
-            let id = parsed_url
-                .strip_prefix("https://steamcommunity.com/sharedfiles/filedetails/?id=")
-                .unwrap()
-                .parse::<u64>()
-                .unwrap();
+            // regex to get id and parse it
+            let caps = re.find(parsed_url);
+
+            if caps.is_none() {
+                println!("current mod: '{}', has no url with id in it", parsed_url);
+                continue;
+            }
+
+            let id = caps.unwrap().as_str().parse::<u64>().unwrap();
 
             // store in vector
             mods.push(Mod {
@@ -83,7 +98,7 @@ impl ModPreset {
         }
 
         Ok(ModPreset {
-            name,
+            name: name.to_string(),
             mods,
             raw_contents,
         })
@@ -109,7 +124,7 @@ impl PresetParser {
                 .await
                 .expect("File path doesn't exist");
             // create ModPreset object
-            let new = ModPreset::new(contents).expect("File parsing failed");
+            let new = ModPreset::new(contents, item.file_name()).expect("File parsing failed");
             presets.push(new);
         }
         Ok(Arc::new(presets))
@@ -119,18 +134,6 @@ impl PresetParser {
         Self {
             presets: Vec::new(),
         }
-    }
-
-    pub fn load_files(&mut self, paths: Vec<impl AsRef<Path>>) -> Result<(), String> {
-        // todo go through each path, read file and parse into vec<ModPreset>
-        for item in &paths {
-            // read into string
-            let contents = std::fs::read_to_string(item).expect("File path does not exist");
-            // create ModPreset object
-            let new = ModPreset::new(contents).expect("File parsing failed");
-            self.presets.push(new);
-        }
-        Ok(())
     }
 
     pub fn set_modpresets(&mut self, presets: Vec<ModPreset>) -> Result<(), String> {

@@ -1,4 +1,5 @@
 #![deny(clippy::all)]
+#![windows_subsystem = "windows"]
 
 use std::collections::BTreeSet;
 use std::io;
@@ -193,16 +194,10 @@ impl Application for AMDU {
                 println!("opening file dialog btn pressed");
                 Command::perform(pick_files(), Message::FilesPicked)
             }
-            Message::FilesPicked(Ok(content)) => {
-                for val in content.iter() {
-                    println!("{:?}", val);
-                }
-
-                Command::perform(
-                    PresetParser::load_files_async(content.to_vec()),
-                    Message::FilesParsed,
-                )
-            }
+            Message::FilesPicked(Ok(content)) => Command::perform(
+                PresetParser::load_files_async(content.to_vec()),
+                Message::FilesParsed,
+            ),
             Message::FilesPicked(Err(error)) => {
                 println!("Error on files picked: {:?}", error);
 
@@ -330,7 +325,7 @@ impl Application for AMDU {
         .padding([5, 5])
         .align_items(Alignment::Center)
         .height(150)
-        .max_width(220);
+        .width(Length::FillPortion(200));
 
         // stats
         let selected_mods_count = self
