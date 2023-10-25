@@ -11,7 +11,7 @@ permissions:
 jobs:
   build-and-upload:
     name: Build and upload
-    runs-on: $\{\{ matrix.os \}\}
+    runs-on: ${{ matrix.os }}
 
     strategy:
       matrix:
@@ -35,7 +35,7 @@ jobs:
 
       - name: Get the release version from the tag
         shell: bash
-        run: echo "VERSION=$\{GITHUB_REF#refs/tags/\}" >> $GITHUB_ENV
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
 
       - name: Install Rust
         # Or @nightly if you want
@@ -43,14 +43,14 @@ jobs:
         # Arguments to pass in
         with:
           # Make Rust compile to our target (defined in the matrix)
-          targets: $\{\{ matrix.target \}\}
+          targets: ${{ matrix.target }}
 
       - name: Build
         uses: actions-rs/cargo@v1
         with:
           use-cross: true
           command: build
-          args: --verbose --release --target $\{\{ matrix.target \}\}
+          args: --verbose --release --target ${{ matrix.target }}
 
       - name: Build archive
         shell: bash
@@ -58,29 +58,29 @@ jobs:
           # Replace with the name of your binary
           binary_name="amdu"
 
-          dirname="$binary_name-$\{\{ env.VERSION \}\}-$\{\{ matrix.target \}\}"
+          dirname="$binary_name-${{ env.VERSION }}-${{ matrix.target }}"
           mkdir "$dirname"
-          if [ "$\{\{ matrix.os \}\}" = "windows-latest" ]; then
-            mv "target/$\{\{ matrix.target \}\}/release/$binary_name.exe" "$dirname"
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            mv "target/${{ matrix.target }}/release/$binary_name.exe" "$dirname"
           else
-            mv "target/$\{\{ matrix.target \}\}/release/$binary_name" "$dirname"
+            mv "target/${{ matrix.target }}/release/$binary_name" "$dirname"
           fi
 
           # copy steamworks library
           # WINDOWS
-          if [ "$\{\{ matrix.os \}\}" = "windows-latest" ]; then
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
             cp "steamworks_redistributable/steam_api64.dll" "$dirname"
           fi
           # LINUX
-          if [ "$\{\{ matrix.os \}\}" = "ubuntu-latest" ]; then
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
             cp "steamworks_redistributable/libsteam_api.so" "$dirname"
           fi
           # MAC
-          if [ "$\{\{ matrix.os \}\}" = "macos-latest" ]; then
+          if [ "${{ matrix.os }}" = "macos-latest" ]; then
             cp "steamworks_redistributable/libsteam_api.dylib" "$dirname"
           fi
 
-          if [ "$\{\{ matrix.os \}\}" = "windows-latest" ]; then
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
             7z a "$dirname.zip" "$dirname"
             echo "ASSET=$dirname.zip" >> $GITHUB_ENV
           else
@@ -92,4 +92,4 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            $\{\{ env.ASSET \}\}
+            ${{ env.ASSET }}
