@@ -1,2 +1,2 @@
-arma mod differential unsubscriber
-AMDU
+# Arma Mod Differential Unsubscriber (AMDU)
+
