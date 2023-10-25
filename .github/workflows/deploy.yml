@@ -36,6 +36,11 @@ jobs:
       - name: Get the release version from the tag
         shell: bash
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+        
+      - name: Install GTK lib
+      	shell: bash
+      	if: matrix.build == "linux"
+      	run: apt-get -y install libgtk-3-dev
 
       - name: Install Rust
         # Or @nightly if you want
