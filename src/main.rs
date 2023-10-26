@@ -37,7 +37,8 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 struct AMDU {
     // parser: Arc<Mutex<PresetParser>>,
-    workshop: Arc<Workshop>,
+    workshop: Option<Arc<Workshop>>,
+    error: String,
     parser: PresetParser,
     mod_selection_list: Vec<ModRow>,
     mod_selection_index: Vec<usize>,
@@ -74,9 +75,18 @@ impl Application for AMDU {
     fn new(_flags: Self::Flags) -> (Self, Command<Message>) {
         // let mut parser = Arc::new(Mutex::new(PresetParser::new()));
 
+        let mut ws: Option<Arc<Workshop>> = None;
+        let mut err: String = "".to_string();
+
+        match Workshop::new(AppId(107410)) {
+            Ok(result) => {ws = Option::from(Arc::new(result)) },
+            Err(e) => { err = e }
+        }
+
         (
             Self {
-                workshop: Arc::new(Workshop::new(AppId(107410)).unwrap()),
+                workshop: ws,
+                error: err,
                 parser: PresetParser::new(),
                 mod_selection_list: vec![],
                 mod_selection_index: vec![],
@@ -110,7 +120,7 @@ impl Application for AMDU {
             Message::EventOccurred(event) => {
                 // if window close event, we drop workshop as this will trigger cleanup for the spawned thread there
                 if let Event::Window(window::Event::CloseRequested) = event {
-                    self.workshop.thread_shutdown_signal.cancel();
+                    self.workshop.as_ref().unwrap().thread_shutdown_signal.cancel();
                     window::close()
                 } else {
                     Command::none()
@@ -118,10 +128,18 @@ impl Application for AMDU {
             }
             Message::Init(Ok(_)) => {
                 // init called as app is started
-                Command::perform(
-                    load_subscribed_mods(self.workshop.clone()),
-                    Message::SubscribedModsFetched,
-                )
+                // Don't fetch anything if workshop could not be initialized
+                match self.workshop.clone() {
+                    Some(ws) => {
+                        Command::perform(
+                            load_subscribed_mods(ws),
+                            Message::SubscribedModsFetched,
+                        )
+                    },
+                    None => {
+                        Command::none()
+                    }
+                }
             }
             Message::Init(Err(e)) => {
                 // todo error?
@@ -137,7 +155,7 @@ impl Application for AMDU {
                             Command::perform(
                                 calculate_local_file_size(
                                     self.workshop_subbed_mods.clone(),
-                                    self.workshop.clone(),
+                                    self.workshop.clone().unwrap(),
                                 ),
                                 Message::LocalFileSizeFetched,
                             ),
@@ -245,7 +263,7 @@ impl Application for AMDU {
                 Command::perform(
                     unsub_selected_mods(
                         self.mod_selection_list.clone(),
-                        self.workshop.clone(),
+                        self.workshop.clone().unwrap(),
                         self.unsub_progress.clone(),
                     ),
                     Message::UnsubbedSelectedMods,
@@ -254,7 +272,7 @@ impl Application for AMDU {
             Message::UnsubbedSelectedMods(result) => {
                 self.unsub_in_progress = false;
                 Command::perform(
-                    load_subscribed_mods(self.workshop.clone()),
+                    load_subscribed_mods(self.workshop.clone().unwrap()),
                     Message::SubscribedModsFetched,
                 )
             }
@@ -278,6 +296,48 @@ impl Application for AMDU {
     }
 
     fn view(&self) -> Element<'_, Message> {
+
+        // ERROR PAGE
+        if self.workshop.is_none() {
+            let content = column![
+                text("Arma3 Mod Differential Unsubscriber")
+                    .width(Length::Fill)
+                    .size(40)
+                    .horizontal_alignment(Horizontal::Center)
+                    .vertical_alignment(Vertical::Top),
+                text("(Does not include subscribed scenarios)")
+                    .width(Length::Fill)
+                    .size(15)
+                    .horizontal_alignment(Horizontal::Center)
+                    .vertical_alignment(Vertical::Top),
+                horizontal_rule(38),
+                row![
+                    text(format!("An Error Occured: {:?}", self.error))
+                    .size(30)
+                    .horizontal_alignment(Horizontal::Center)
+                    .vertical_alignment(Vertical::Center)
+                ]
+                    .spacing(10)
+                    .height(Length::FillPortion(400))
+                    .align_items(Alignment::Center),
+                row![
+                    horizontal_space(Length::Fill),
+                    text(format!("v{}", VERSION)).vertical_alignment(Vertical::Bottom).horizontal_alignment(Horizontal::Right)
+                ].align_items(Alignment::End)
+            ]
+                .spacing(5)
+                .padding(20)
+                .align_items(Alignment::Start);
+
+            return container(content)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .center_x()
+                .center_y()
+                .into();
+        }
+
+        // MAIN CONTENT
         let load_presets = column![
             text("Load presets you wish to keep")
                 .horizontal_alignment(Horizontal::Center)
@@ -464,12 +524,12 @@ impl Application for AMDU {
         .padding(20)
         .align_items(Alignment::Start);
 
-        container(content)
+        return container(content)
             .width(Length::Fill)
             .height(Length::Fill)
             .center_x()
             .center_y()
-            .into()
+            .into();
     }
 
     fn theme(&self) -> Theme {

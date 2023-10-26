@@ -20,7 +20,7 @@ impl Workshop {
         // try to initialize client
         let client_result = Client::init_app(app_id);
         if client_result.is_err() {
-            return Err("Failed to initialize steam client".to_string());
+            return Err("Failed to initialize steam client. Make sure steam is running in the background and restart AMDU".to_string());
         }
 
         // if client is ok, we save it
@@ -28,7 +28,7 @@ impl Workshop {
 
         if !client.apps().is_app_installed(app_id) {
             return Err(format!(
-                "Selected app is not installed... AppId: {}",
+                "Arma3 is not installed on this system, looking for AppID: {}",
                 app_id.0
             ));
         }
