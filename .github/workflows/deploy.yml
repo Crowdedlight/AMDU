@@ -20,14 +20,17 @@ jobs:
           - build: linux
             os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            name: linux-ubuntu
 
           - build: macos
             os: macos-latest
             target: x86_64-apple-darwin
+            name: mac
 
           - build: windows-gnu
             os: windows-latest
             target: x86_64-pc-windows-gnu
+            name: windows
 
     steps:
       - name: Checkout
@@ -63,7 +66,7 @@ jobs:
           # Replace with the name of your binary
           binary_name="amdu"
 
-          dirname="$binary_name-${{ env.VERSION }}-${{ matrix.target }}"
+          dirname="$binary_name-${{ env.VERSION }}-${{ matrix.name }}"
           mkdir "$dirname"
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
             mv "target/${{ matrix.target }}/release/$binary_name.exe" "$dirname"
