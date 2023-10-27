@@ -13,5 +13,10 @@ subscribed mods and unsubscribe them for you.
 
 AMDU is tested on Windows only, but built and in theory should run on both Linux and MacOS. 
 
+## Known Issues
+If arma is not installed on the machine with the subbed mods installed, the filesize of each mod will not be shown. 
+As it polls those from the local installed mods through the steamworks SDK. I am not using the workshop file-sizes as 
+they are very inaccurate. 
+
 ## Example video
 TODO - Insert

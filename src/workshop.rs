@@ -21,14 +21,6 @@ impl Workshop {
         // if client is ok, we save it
         let (client, single) = client_result.unwrap();
 
-        // TODO, does it have to be installed? I don't think so?
-        // if !client.apps().is_app_installed(app_id) {
-        //     return Err(format!(
-        //         "Arma3 is not installed on this system, looking for AppID: {}",
-        //         app_id.0
-        //     ));
-        // }
-
         // make thread for callback running
         let token = CancellationToken::new();
         let cloned_token = token.clone();
