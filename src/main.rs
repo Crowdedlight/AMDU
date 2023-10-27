@@ -2,26 +2,26 @@
 #![windows_subsystem = "windows"]
 
 use std::collections::BTreeSet;
-use std::path::{PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::widgets::modrow::{Message as RowMessage, ModRow};
+use humansize::{format_size, DECIMAL};
 use iced::alignment::{Horizontal, Vertical};
-use iced::event::{Event};
+use iced::event::Event;
 use iced::subscription::events;
 use iced::widget::{
-    button, column, container, horizontal_rule, horizontal_space, progress_bar, row,
-    scrollable, text, vertical_rule, vertical_space,
+    button, column, container, horizontal_rule, horizontal_space, progress_bar, row, scrollable,
+    text, vertical_rule, vertical_space,
 };
 use iced::{
-    executor, time, window, Alignment, Application, Command, Element, Length,
-    Settings, Subscription, Theme,
+    executor, time, window, Alignment, Application, Command, Element, Length, Settings,
+    Subscription, Theme,
 };
 use steamworks::{AppId, PublishedFileId};
 use tokio::sync::oneshot;
-use humansize::{format_size, DECIMAL};
 
 use crate::presets::{Mod, ModPreset, PresetParser};
 use crate::workshop::Workshop;
@@ -75,8 +75,8 @@ impl Application for Amdu {
         let mut err: String = "".to_string();
 
         match Workshop::new(AppId(107410)) {
-            Ok(result) => {ws = Option::from(Arc::new(result)) },
-            Err(e) => { err = e }
+            Ok(result) => ws = Option::from(Arc::new(result)),
+            Err(e) => err = e,
         }
 
         (
@@ -115,7 +115,11 @@ impl Application for Amdu {
             Message::EventOccurred(event) => {
                 // if window close event, we drop workshop as this will trigger cleanup for the spawned thread there
                 if let Event::Window(window::Event::CloseRequested) = event {
-                    self.workshop.as_ref().unwrap().thread_shutdown_signal.cancel();
+                    self.workshop
+                        .as_ref()
+                        .unwrap()
+                        .thread_shutdown_signal
+                        .cancel();
                     window::close()
                 } else {
                     Command::none()
@@ -126,14 +130,9 @@ impl Application for Amdu {
                 // Don't fetch anything if workshop could not be initialized
                 match self.workshop.clone() {
                     Some(ws) => {
-                        Command::perform(
-                            load_subscribed_mods(ws),
-                            Message::SubscribedModsFetched,
-                        )
-                    },
-                    None => {
-                        Command::none()
+                        Command::perform(load_subscribed_mods(ws), Message::SubscribedModsFetched)
                     }
+                    None => Command::none(),
                 }
             }
             Message::Init(Err(e)) => {
@@ -291,7 +290,6 @@ impl Application for Amdu {
     }
 
     fn view(&self) -> Element<'_, Message> {
-
         // ERROR PAGE
         if self.workshop.is_none() {
             let content = column![
@@ -306,23 +304,24 @@ impl Application for Amdu {
                     .horizontal_alignment(Horizontal::Center)
                     .vertical_alignment(Vertical::Top),
                 horizontal_rule(38),
-                row![
-                    text(format!("An Error Occured: {:?}", self.error))
+                row![text(format!("An Error Occured: {:?}", self.error))
                     .size(30)
                     .horizontal_alignment(Horizontal::Center)
-                    .vertical_alignment(Vertical::Center)
-                ]
-                    .spacing(10)
-                    .height(Length::FillPortion(400))
-                    .align_items(Alignment::Center),
+                    .vertical_alignment(Vertical::Center)]
+                .spacing(10)
+                .height(Length::FillPortion(400))
+                .align_items(Alignment::Center),
                 row![
                     horizontal_space(Length::Fill),
-                    text(format!("v{}", VERSION)).vertical_alignment(Vertical::Bottom).horizontal_alignment(Horizontal::Right)
-                ].align_items(Alignment::End)
+                    text(format!("v{}", VERSION))
+                        .vertical_alignment(Vertical::Bottom)
+                        .horizontal_alignment(Horizontal::Right)
+                ]
+                .align_items(Alignment::End)
             ]
-                .spacing(5)
-                .padding(20)
-                .align_items(Alignment::Start);
+            .spacing(5)
+            .padding(20)
+            .align_items(Alignment::Start);
 
             return container(content)
                 .width(Length::Fill)
@@ -438,16 +437,17 @@ impl Application for Amdu {
             unsub_button = unsub_button.on_press(Message::UnsubSelected);
         }
 
-        let selection_list = self.mod_selection_list.iter().enumerate().fold(
-            column![].spacing(6),
-            |col, (i, _)| {
-                col.push(
-                    self.mod_selection_list[i]
-                        .view()
-                        .map(move |msg| Message::List(i, msg)),
-                )
-            },
-        );
+        let selection_list =
+            self.mod_selection_list
+                .iter()
+                .enumerate()
+                .fold(column![].spacing(6), |col, (i, _)| {
+                    col.push(
+                        self.mod_selection_list[i]
+                            .view()
+                            .map(move |msg| Message::List(i, msg)),
+                    )
+                });
 
         let scrollable: Element<Message> = match self.unsub_in_progress {
             false => scrollable(selection_list)

@@ -2,10 +2,10 @@
 
 use html_query_ast::parse_string;
 use html_query_extractor::extract;
-use regex::{Regex};
+use regex::Regex;
 use std::cmp::Ordering;
 use std::ffi::OsStr;
-use std::path::{PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]

@@ -1,6 +1,6 @@
 #![deny(clippy::all)]
 
-use std::sync::{mpsc};
+use std::sync::mpsc;
 use steamworks::{Client, PublishedFileId, QueryResult};
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
