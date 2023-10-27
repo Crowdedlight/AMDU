@@ -1,8 +1,7 @@
 use humansize::{format_size, DECIMAL};
 use iced::widget::{button, checkbox, row, text, Space};
 use iced::{
-    alignment, color, Alignment, Background, BorderRadius, Command, Element, Length, Renderer,
-    Theme,
+    Alignment, Command, Element, Length,
 };
 
 #[derive(Clone, Debug)]
@@ -36,20 +35,17 @@ impl ModRow {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        // let button_style;
-        // let action_text;
-        let selection_checkbox;
 
-        let mut checkbox_style = checkbox::Appearance {
-            background: Background::Color(color!(0, 0, 0)),
-            border_color: color!(0, 0, 0),
-            border_radius: 5.0.into(),
-            border_width: 1.0,
-            icon_color: color!(0, 0, 0),
-            text_color: None,
-        };
+        // let checkbox_style = checkbox::Appearance {
+        //     background: Background::Color(color!(0, 0, 0)),
+        //     border_color: color!(0, 0, 0),
+        //     border_radius: 5.0.into(),
+        //     border_width: 1.0,
+        //     icon_color: color!(0, 0, 0),
+        //     text_color: None,
+        // };
 
-        if self.selected.clone() {
+        // if self.selected {
             // todo change colour of row?
             // checkbox_style = checkbox::Appearance {
             //     background: Background::Color(color!(0,0,0)),
@@ -59,9 +55,9 @@ impl ModRow {
             //     icon_color: color!(0,0,0),
             //     text_color: None
             // };
-        }
+        // }
 
-        selection_checkbox = checkbox("", self.selected, Message::ToggleSelection);
+        let selection_checkbox = checkbox("", self.selected, Message::ToggleSelection);
         // selection_checkbox = checkbox("", self.selected, Message::ToggleSelection).style(checkbox_style);
 
         row![

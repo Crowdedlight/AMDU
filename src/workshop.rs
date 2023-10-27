@@ -1,17 +1,12 @@
-use std::fmt::format;
-use std::sync::mpsc::RecvError;
-use std::sync::{mpsc, Arc};
-use steamworks::{AppId, Client, ClientManager, PublishedFileId, QueryResult, UGC};
-use tokio::select;
+#![deny(clippy::all)]
+
+use std::sync::{mpsc};
+use steamworks::{Client, PublishedFileId, QueryResult};
 use tokio::sync::oneshot;
-use tokio::sync::oneshot::error::TryRecvError;
-use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 pub struct Workshop {
-    app_id: steamworks::AppId,
     client: steamworks::Client,
-    thread: JoinHandle<()>,
     pub thread_shutdown_signal: CancellationToken,
 }
 
@@ -26,19 +21,20 @@ impl Workshop {
         // if client is ok, we save it
         let (client, single) = client_result.unwrap();
 
-        if !client.apps().is_app_installed(app_id) {
-            return Err(format!(
-                "Arma3 is not installed on this system, looking for AppID: {}",
-                app_id.0
-            ));
-        }
+        // TODO, does it have to be installed? I don't think so?
+        // if !client.apps().is_app_installed(app_id) {
+        //     return Err(format!(
+        //         "Arma3 is not installed on this system, looking for AppID: {}",
+        //         app_id.0
+        //     ));
+        // }
 
         // make thread for callback running
         let token = CancellationToken::new();
         let cloned_token = token.clone();
 
         // create a thread for callbacks
-        let thread = tokio::spawn(async move {
+        tokio::spawn(async move {
             loop {
                 // run callbacks
                 single.run_callbacks();
@@ -52,9 +48,7 @@ impl Workshop {
         });
 
         Ok(Workshop {
-            app_id,
             client,
-            thread,
             thread_shutdown_signal: token,
         })
     }
@@ -102,10 +96,10 @@ impl Workshop {
                 })
             }
             Err(e) => {
-                println!("Error on making subscribed items query")
+                println!("Error on making subscribed items query, ERR: {:?}", e)
             }
         }
-        return Ok(receiver.recv().unwrap());
+        Ok(receiver.recv().unwrap())
     }
 
     pub async fn unsub_from_mod(
@@ -123,7 +117,7 @@ impl Workshop {
                     .send(unsub_result)
                     .expect("PANIC: Main thread is gone");
             });
-        return receiver.recv().unwrap(); // If we want to handle both steamerror and oneshot error, use crate AnyHow. Has result types that can easily be converted to.
+        receiver.recv().unwrap() // If we want to handle both steamerror and oneshot error, use crate AnyHow. Has result types that can easily be converted to.
     }
 }
 

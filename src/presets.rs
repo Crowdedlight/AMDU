@@ -1,16 +1,12 @@
+#![deny(clippy::all)]
+
 use html_query_ast::parse_string;
 use html_query_extractor::extract;
-use iced::futures::future::ok;
-use regex::{Match, Regex};
-use serde::Deserialize;
+use regex::{Regex};
 use std::cmp::Ordering;
-use std::error::Error;
 use std::ffi::OsStr;
-use std::io;
-use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
+use std::path::{PathBuf};
 use std::sync::Arc;
-use tokio::fs;
 
 #[derive(Debug, Clone)]
 pub struct Mod {
@@ -43,7 +39,6 @@ impl PartialOrd for Mod {
 pub struct ModPreset {
     pub name: String,
     pub mods: Vec<Mod>,
-    raw_contents: String,
 }
 
 impl ModPreset {
@@ -56,11 +51,10 @@ impl ModPreset {
         let name_output = extract(raw_contents.as_str(), &name_parse);
 
         // if name doens't exist, we use filename?
-        let name;
-        match name_output["name"].as_str() {
-            Some(str) => name = str,
-            None => name = filename.unwrap().to_str().unwrap(),
-        }
+        let name = match name_output["name"].as_str() {
+            Some(str) => str,
+            None => filename.unwrap().to_str().unwrap(),
+        };
 
         let parsed =
             parse_string("{mods: [data-type=ModContainer]| [ {name: td, url: a | @(href)} ] }")
@@ -100,7 +94,6 @@ impl ModPreset {
         Ok(ModPreset {
             name: name.to_string(),
             mods,
-            raw_contents,
         })
     }
 
@@ -112,6 +105,12 @@ impl ModPreset {
 #[derive(Debug, Clone)]
 pub struct PresetParser {
     presets: Vec<ModPreset>,
+}
+
+impl Default for PresetParser {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PresetParser {
@@ -142,7 +141,7 @@ impl PresetParser {
     }
 
     pub fn get_modpresets(&self) -> Vec<ModPreset> {
-        return self.presets.clone();
+        self.presets.clone()
     }
 
     pub fn get_all_mod_ids_unique(&self) -> Result<Vec<u64>, String> {

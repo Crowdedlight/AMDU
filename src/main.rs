@@ -2,27 +2,24 @@
 #![windows_subsystem = "windows"]
 
 use std::collections::BTreeSet;
-use std::io;
-use std::ops::Deref;
-use std::path::{Path, PathBuf};
+use std::path::{PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc};
 use std::time::{Duration, Instant};
 
 use crate::widgets::modrow::{Message as RowMessage, ModRow};
 use iced::alignment::{Horizontal, Vertical};
-use iced::event::{self, Event};
-use iced::futures::StreamExt;
+use iced::event::{Event};
 use iced::subscription::events;
 use iced::widget::{
-    button, checkbox, column, container, horizontal_rule, horizontal_space, progress_bar, row,
-    scrollable, text, vertical_rule, vertical_space, Text,
+    button, column, container, horizontal_rule, horizontal_space, progress_bar, row,
+    scrollable, text, vertical_rule, vertical_space,
 };
 use iced::{
-    executor, theme, time, window, Alignment, Application, Color, Command, Element, Length,
+    executor, time, window, Alignment, Application, Command, Element, Length,
     Settings, Subscription, Theme,
 };
-use steamworks::{AppId, Client, ClientManager, PublishedFileId, UGC};
+use steamworks::{AppId, PublishedFileId};
 use tokio::sync::oneshot;
 use humansize::{format_size, DECIMAL};
 
@@ -35,13 +32,12 @@ pub mod workshop;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-struct AMDU {
+struct Amdu {
     // parser: Arc<Mutex<PresetParser>>,
     workshop: Option<Arc<Workshop>>,
     error: String,
     parser: PresetParser,
     mod_selection_list: Vec<ModRow>,
-    mod_selection_index: Vec<usize>,
     workshop_subbed_mods: Vec<Mod>,
     toggle_all_state: bool,
     unsub_in_progress: bool,
@@ -66,7 +62,7 @@ enum Message {
     UpdateSelectionView(Arc<Vec<Mod>>),
 }
 
-impl Application for AMDU {
+impl Application for Amdu {
     type Message = Message;
     type Theme = Theme;
     type Executor = executor::Default;
@@ -89,7 +85,6 @@ impl Application for AMDU {
                 error: err,
                 parser: PresetParser::new(),
                 mod_selection_list: vec![],
-                mod_selection_index: vec![],
                 workshop_subbed_mods: vec![],
                 toggle_all_state: true,
                 unsub_in_progress: false,
@@ -168,19 +163,19 @@ impl Application for AMDU {
                             ),
                         ])
                     }
-                    Err(e) => Command::none(),
+                    Err(_) => Command::none(),
                 };
             }
             Message::UpdateSelectionView(diff_mods) => {
                 // get diff, not calling as async as this is just straight vector diff and thus quick
 
                 let mut mod_rows = vec![];
-                for (i, item) in diff_mods.iter().enumerate() {
+                for item in diff_mods.iter() {
                     let row = ModRow::new(
-                        item.id.clone(),
+                        item.id,
                         item.name.clone(),
                         item.url.clone(),
-                        item.local_filesize.clone(),
+                        item.local_filesize,
                         true,
                     );
                     mod_rows.push(row);
@@ -203,7 +198,7 @@ impl Application for AMDU {
                         )
                     }
                     Err(e) => {
-                        println!("Failed fetching local install sizes");
+                        println!("Failed fetching local install sizes with error: {:?}", e);
                         Command::none()
                     }
                 };
@@ -240,15 +235,15 @@ impl Application for AMDU {
             Message::List(index, msg) => {
                 match msg {
                     RowMessage::ToggleSelection(toggle) => {
-                        self.mod_selection_list[index.clone()].selected = toggle;
-                        return Command::none();
+                        self.mod_selection_list[index].selected = toggle;
+                        Command::none()
                     }
                     RowMessage::ModPressed => {
                         // we do the same as toggle selection
-                        self.mod_selection_list[index.clone()].selected =
-                            !self.mod_selection_list[index.clone()].selected.clone();
+                        self.mod_selection_list[index].selected =
+                            !self.mod_selection_list[index].selected;
 
-                        return Command::none();
+                        Command::none()
                     }
                 }
             }
@@ -269,14 +264,14 @@ impl Application for AMDU {
                     Message::UnsubbedSelectedMods,
                 )
             }
-            Message::UnsubbedSelectedMods(result) => {
+            Message::UnsubbedSelectedMods(_) => {
                 self.unsub_in_progress = false;
                 Command::perform(
                     load_subscribed_mods(self.workshop.clone().unwrap()),
                     Message::SubscribedModsFetched,
                 )
             }
-            Message::UnsubProgress(now) => {
+            Message::UnsubProgress(_) => {
                 // self.unsub_progress = *progress;
                 // just ticking gui update...
                 Command::none()
@@ -439,13 +434,13 @@ impl Application for AMDU {
         .width(150)
         .height(150);
 
-        if self.mod_selection_list.len() > 0 {
+        if !self.mod_selection_list.is_empty() {
             unsub_button = unsub_button.on_press(Message::UnsubSelected);
         }
 
         let selection_list = self.mod_selection_list.iter().enumerate().fold(
             column![].spacing(6),
-            |col, (i, item)| {
+            |col, (i, _)| {
                 col.push(
                     self.mod_selection_list[i]
                         .view()
@@ -540,7 +535,6 @@ impl Application for AMDU {
 #[derive(Debug, Clone)]
 enum Error {
     DialogClosed,
-    IO(io::ErrorKind),
 }
 
 async fn pick_files() -> Result<Arc<Vec<PathBuf>>, Error> {
@@ -556,13 +550,13 @@ async fn pick_files() -> Result<Arc<Vec<PathBuf>>, Error> {
         .iter()
         .map(|handle| handle.path().to_path_buf())
         .collect();
-    return Ok(Arc::new(vector_paths));
+    Ok(Arc::new(vector_paths))
     // let arc: Arc<[Path]> = vector_paths.into()
 }
 
 async fn init() -> Result<(), String> {
     // run when created, for init code
-    return Ok(());
+    Ok(())
 }
 
 async fn load_subscribed_mods(
@@ -573,14 +567,14 @@ async fn load_subscribed_mods(
         .iter()
         .filter(|item| !item.tags.contains(&"Scenario".to_owned()))
         .map(|result| Mod {
-            id: result.published_file_id.0.clone(),
+            id: result.published_file_id.0,
             url: result.url.clone(),
             tags: result.tags.clone(),
             name: result.title.clone(),
             local_filesize: 0,
         })
         .collect();
-    return Ok(Arc::new(formatted_mods));
+    Ok(Arc::new(formatted_mods))
 }
 
 async fn calculate_diff_mods(keep_sets: Vec<ModPreset>, all_mods: Vec<Mod>) -> Arc<Vec<Mod>>
@@ -588,14 +582,13 @@ where
     Mod: std::cmp::Ord,
 {
     // if we have empty all_mods, we should return empty diff
-    if keep_sets.len() <= 0 {
+    if keep_sets.is_empty() {
         return Arc::new(all_mods);
     }
 
     let combined_keep_mods: Vec<_> = keep_sets
         .iter()
-        .map(|item| item.mods.clone())
-        .flatten()
+        .flat_map(|item| item.mods.clone())
         .collect();
     let keep_mods_set = BTreeSet::from_iter(combined_keep_mods);
 
@@ -606,7 +599,7 @@ where
     // sleep we need due to bug on windows causing some batch commands not run if return too fast: https://github.com/iced-rs/iced/issues/436
     tokio::time::sleep(Duration::from_millis(2)).await;
 
-    return Arc::new(diff_mods);
+    Arc::new(diff_mods)
 }
 
 async fn calculate_local_file_size(
@@ -630,29 +623,26 @@ async fn calculate_local_file_size(
     // sleep we need due to bug on windows causing some batch commands not run if return too fast: https://github.com/iced-rs/iced/issues/436
     tokio::time::sleep(Duration::from_millis(2)).await;
 
-    return Ok(Arc::new(mods));
+    Ok(Arc::new(mods))
 }
 
 async fn unsub_selected_mods(
     mods: Vec<ModRow>,
     workshop: Arc<Workshop>,
-    mut progress: Arc<AtomicU32>,
+    progress: Arc<AtomicU32>,
 ) -> Result<(), String> {
-    for (i, val) in mods.iter().filter(|item| item.selected).enumerate() {
+    for val in mods.iter().filter(|item| item.selected) {
         // for every loop we add one to progress to show what mod we are currently unsubbing
         progress.fetch_add(1, Ordering::Relaxed);
 
-        match workshop.unsub_from_mod(PublishedFileId(val.id)).await {
-            // TODO make subscription for return. Idea is we show progress bar while going through it, and on each ok/err we publish progress?
-            Ok(_) => {}
-            Err(e) => {}
-        }
+        // await unsub
+        if let Ok(_) = workshop.unsub_from_mod(PublishedFileId(val.id)).await {}
     }
     Ok(())
 }
 
 pub fn main() -> iced::Result {
-    AMDU::run(Settings {
+    Amdu::run(Settings {
         exit_on_close_request: false,
         ..Settings::default()
     })
