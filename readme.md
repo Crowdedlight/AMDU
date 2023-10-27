@@ -11,7 +11,7 @@ also unsubscribe from all the selected mods.
 It is a requirement that the steam client is running in the background as AMDU uses the steamworks SDK to fetch your
 subscribed mods and unsubscribe them for you.   
 
-AMDU is tested on Windows only, but built and in theory should run on both Linux and MacOS. 
+AMDU is mainly tested on Windows and Linux, but built and in theory should also run on MacOS. 
 
 ## Known Issues
 If arma is not installed on the machine with the subbed mods installed, the filesize of each mod will not be shown. 

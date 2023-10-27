@@ -20,6 +20,7 @@ use iced::{
     executor, time, window, Alignment, Application, Command, Element, Length, Settings,
     Subscription, Theme,
 };
+use iced::window::{icon};
 use steamworks::{AppId, PublishedFileId};
 use tokio::sync::oneshot;
 
@@ -644,6 +645,10 @@ async fn unsub_selected_mods(
 pub fn main() -> iced::Result {
     Amdu::run(Settings {
         exit_on_close_request: false,
+        window: window::Settings {
+            icon: Some(icon::from_file_data(include_bytes!("../gfx/icon.jpg"), Some(image::ImageFormat::Jpeg)).expect("Failed to load icon")),
+            ..Default::default()
+        },
         ..Settings::default()
     })
 }
