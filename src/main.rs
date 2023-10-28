@@ -2,7 +2,7 @@
 #![windows_subsystem = "windows"]
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -137,7 +137,6 @@ impl Application for Amdu {
                 }
             }
             Message::Init(Err(e)) => {
-                // todo error?
                 println!("init: Error {:?}", e);
                 Command::none()
             }
@@ -646,9 +645,10 @@ pub fn main() -> iced::Result {
     Amdu::run(Settings {
         exit_on_close_request: false,
         window: window::Settings {
-            icon: Some(icon::from_file_data(include_bytes!("../gfx/icon.jpg"), Some(image::ImageFormat::Jpeg)).expect("Failed to load icon")),
+            icon: Some(icon::from_file_data(include_bytes!("../gfx/icon.png"), Some(image::ImageFormat::Png)).expect("Failed to load icon")),
             ..Default::default()
         },
         ..Settings::default()
     })
+
 }

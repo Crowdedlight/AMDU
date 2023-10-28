@@ -115,7 +115,6 @@ impl Default for PresetParser {
 
 impl PresetParser {
     pub async fn load_files_async(paths: Vec<PathBuf>) -> Result<Arc<Vec<ModPreset>>, String> {
-        // todo go through each path, read file and parse into vec<ModPreset>
         let mut presets = Vec::new();
         for item in &paths {
             // read into string

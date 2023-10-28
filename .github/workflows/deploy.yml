@@ -29,7 +29,7 @@ jobs:
 
           - build: windows-gnu
             os: windows-latest
-            target: x86_64-pc-windows-gnu
+            target: x86_64-pc-windows-msvc
             name: windows
 
     steps:
@@ -46,12 +46,13 @@ jobs:
         run: sudo apt-get -y install libgtk-3-dev
 
       - name: Install Rust
-        # Or @nightly if you want
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rs/toolchain@v1
         # Arguments to pass in
         with:
+          toolchain: stable
+          override: true
           # Make Rust compile to our target (defined in the matrix)
-          targets: ${{ matrix.target }}
+          target: ${{ matrix.target }}
 
       - name: Build
         uses: actions-rs/cargo@v1
