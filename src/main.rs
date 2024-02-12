@@ -563,9 +563,9 @@ async fn load_subscribed_mods(
     workshop: Arc<Workshop>,
 ) -> Result<Arc<Vec<Mod>>, oneshot::error::RecvError> {
     let mods = workshop.get_subscribed_mods_info().await.unwrap();
-    let formatted_mods = mods
+    let mut formatted_mods: Vec<Mod> = mods
         .iter()
-        .filter(|item| !item.tags.contains(&"Scenario".to_owned()))
+        .filter(|item| !item.tags.contains(&"Scenario".to_owned()) && !item.tags.contains(&"Composition".to_owned()))
         .map(|result| Mod {
             id: result.published_file_id.0,
             url: result.url.clone(),
@@ -574,6 +574,7 @@ async fn load_subscribed_mods(
             local_filesize: 0,
         })
         .collect();
+    formatted_mods.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     Ok(Arc::new(formatted_mods))
 }
 
@@ -593,7 +594,7 @@ where
     let keep_mods_set = BTreeSet::from_iter(combined_keep_mods);
 
     let mut diff_mods: Vec<Mod> = all_mods.clone();
-    diff_mods.sort();
+    diff_mods.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     diff_mods.retain(|e| !keep_mods_set.contains(e));
 
     // sleep we need due to bug on windows causing some batch commands not run if return too fast: https://github.com/iced-rs/iced/issues/436
