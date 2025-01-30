@@ -68,8 +68,13 @@ impl ModPreset {
         // loop through items
         for val in mods_list {
             // name
-            let parsed_name = val["name"].as_str().unwrap();
-            let parsed_url = val["url"].as_str().unwrap();
+            let parsed_name = val["name"].as_str().unwrap_or("");
+            let parsed_url = val["url"].as_str().unwrap_or("");
+
+            // test if name and url exists. If it does not exists it is likely local mods and we just skip them
+            if parsed_name.is_empty() || parsed_url.is_empty() {
+                continue;
+            }
 
             // regex to get id and parse it
             let caps = re.find(parsed_url);

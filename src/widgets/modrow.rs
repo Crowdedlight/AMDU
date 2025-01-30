@@ -1,6 +1,6 @@
 use humansize::{format_size, DECIMAL};
 use iced::widget::{button, checkbox, row, text, Space};
-use iced::{Alignment, Command, Element, Length};
+use iced::{Element, Length, Task, Theme};
 
 #[derive(Clone, Debug)]
 pub struct ModRow {
@@ -28,8 +28,8 @@ impl ModRow {
         }
     }
 
-    pub fn update(&mut self, _message: &Message) -> Command<Message> {
-        Command::none()
+    pub fn update(&mut self, _message: &Message) -> Task<Message> {
+        Task::none()
     }
 
     pub fn view(&self) -> Element<'_, Message> {
@@ -54,8 +54,7 @@ impl ModRow {
         // };
         // }
 
-        let selection_checkbox = checkbox("", self.selected, Message::ToggleSelection);
-        // selection_checkbox = checkbox("", self.selected, Message::ToggleSelection).style(checkbox_style);
+        let selection_checkbox = checkbox("", self.selected).on_toggle(Message::ToggleSelection);
 
         row![
             button(
@@ -69,19 +68,19 @@ impl ModRow {
                     .width(Length::FillPortion(8)),
                     selection_checkbox,
                 ]
-                .align_items(Alignment::Center)
             )
             .padding(8)
-            // .style(if self.current {
-            //     style::Button::SelectedPackage
-            // } else {
-            //     style::Button::NormalPackage
-            // })
+            .style(|theme: &Theme, status| {
+                let palette = theme.extended_palette();
+                match self.selected {
+                    false => button::Style::default().with_background(palette.secondary.base.color),
+                    _ => button::primary(theme, status),
+                }
+            })
             .width(Length::Fill)
             .on_press(Message::ToggleSelection(!self.selected)),
             Space::with_width(15)
         ]
-        .align_items(Alignment::Center)
         .into()
     }
 }

@@ -11,15 +11,8 @@ use crate::widgets::modrow::{Message as RowMessage, ModRow};
 use humansize::{format_size, DECIMAL};
 use iced::alignment::{Horizontal, Vertical};
 use iced::event::Event;
-use iced::subscription::events;
-use iced::widget::{
-    button, column, container, horizontal_rule, horizontal_space, progress_bar, row, scrollable,
-    text, vertical_rule, vertical_space,
-};
-use iced::{
-    executor, time, window, Alignment, Application, Command, Element, Length, Settings,
-    Subscription, Theme,
-};
+use iced::widget::{button, column, container, horizontal_rule, horizontal_space, progress_bar, row, scrollable, text, vertical_rule, vertical_space, Space};
+use iced::{event, time, window, Element, Length, Subscription, Task, Theme};
 use iced::window::{icon};
 use steamworks::{AppId, PublishedFileId};
 use tokio::sync::oneshot;
@@ -63,13 +56,9 @@ enum Message {
     UpdateSelectionView(Arc<Vec<Mod>>),
 }
 
-impl Application for Amdu {
-    type Message = Message;
-    type Theme = Theme;
-    type Executor = executor::Default;
-    type Flags = ();
+impl Amdu {
 
-    fn new(_flags: Self::Flags) -> (Self, Command<Message>) {
+    fn new() -> (Self, Task<Message>) {
         // let mut parser = Arc::new(Mutex::new(PresetParser::new()));
 
         let mut ws: Option<Arc<Workshop>> = None;
@@ -78,6 +67,11 @@ impl Application for Amdu {
         match Workshop::new(AppId(107410)) {
             Ok(result) => ws = Option::from(Arc::new(result)),
             Err(e) => err = e,
+        }
+
+        // print error if we get any
+        if !err.is_empty() {
+            println!("Workshop Error: {:?}", err);
         }
 
         (
@@ -92,17 +86,13 @@ impl Application for Amdu {
                 unsub_total_count: 0,
                 unsub_progress: Arc::new(AtomicU32::new(0)),
             },
-            Command::perform(init(), Message::Init),
+            Task::perform(init(), Message::Init),
         )
-    }
-
-    fn title(&self) -> String {
-        String::from("AMDU")
     }
 
     fn subscription(&self) -> Subscription<Message> {
         Subscription::batch(vec![
-            events().map(Message::EventOccurred),
+            event::listen().map(Message::EventOccurred),
             // this is not the most optimal way to do it, but the polling ticker only runs during unsub progress... so should be fine
             match self.unsub_in_progress {
                 false => Subscription::none(),
@@ -111,19 +101,22 @@ impl Application for Amdu {
         ])
     }
 
-    fn update(&mut self, message: Self::Message) -> Command<Message> {
+    fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::EventOccurred(event) => {
+
                 // if window close event, we drop workshop as this will trigger cleanup for the spawned thread there
                 if let Event::Window(window::Event::CloseRequested) = event {
+                    // stop workshop thread
                     self.workshop
                         .as_ref()
                         .unwrap()
                         .thread_shutdown_signal
                         .cancel();
-                    window::close()
+                    // close window
+                    window::get_latest().and_then(window::close)
                 } else {
-                    Command::none()
+                    Task::none()
                 }
             }
             Message::Init(Ok(_)) => {
@@ -131,29 +124,29 @@ impl Application for Amdu {
                 // Don't fetch anything if workshop could not be initialized
                 match self.workshop.clone() {
                     Some(ws) => {
-                        Command::perform(load_subscribed_mods(ws), Message::SubscribedModsFetched)
+                        Task::perform(load_subscribed_mods(ws), Message::SubscribedModsFetched)
                     }
-                    None => Command::none(),
+                    None => Task::none(),
                 }
             }
             Message::Init(Err(e)) => {
                 println!("init: Error {:?}", e);
-                Command::none()
+                Task::none()
             }
             Message::SubscribedModsFetched(result) => {
-                return match result {
+                match result {
                     Ok(mods) => {
                         self.workshop_subbed_mods = mods.to_vec();
 
-                        Command::batch(vec![
-                            Command::perform(
+                        Task::batch(vec![
+                            Task::perform(
                                 calculate_local_file_size(
                                     self.workshop_subbed_mods.clone(),
                                     self.workshop.clone().unwrap(),
                                 ),
                                 Message::LocalFileSizeFetched,
                             ),
-                            Command::perform(
+                            Task::perform(
                                 calculate_diff_mods(
                                     self.parser.get_modpresets(),
                                     self.workshop_subbed_mods.clone(),
@@ -162,8 +155,8 @@ impl Application for Amdu {
                             ),
                         ])
                     }
-                    Err(_) => Command::none(),
-                };
+                    Err(_) => Task::none(),
+                }
             }
             Message::UpdateSelectionView(diff_mods) => {
                 // get diff, not calling as async as this is just straight vector diff and thus quick
@@ -181,14 +174,14 @@ impl Application for Amdu {
                 }
                 self.mod_selection_list = mod_rows;
 
-                Command::none()
+                Task::none()
             }
             Message::LocalFileSizeFetched(result) => {
-                return match result {
+                match result {
                     Ok(mods) => {
                         self.workshop_subbed_mods = mods.to_vec();
                         // as we have updated data source now, update selection view by recalc
-                        Command::perform(
+                        Task::perform(
                             calculate_diff_mods(
                                 self.parser.get_modpresets(),
                                 self.workshop_subbed_mods.clone(),
@@ -198,28 +191,28 @@ impl Application for Amdu {
                     }
                     Err(e) => {
                         println!("Failed fetching local install sizes with error: {:?}", e);
-                        Command::none()
+                        Task::none()
                     }
-                };
+                }
             }
             Message::OpenFileDialog => {
                 println!("opening file dialog btn pressed");
-                Command::perform(pick_files(), Message::FilesPicked)
+                Task::perform(pick_files(), Message::FilesPicked)
             }
-            Message::FilesPicked(Ok(content)) => Command::perform(
+            Message::FilesPicked(Ok(content)) => Task::perform(
                 PresetParser::load_files_async(content.to_vec()),
                 Message::FilesParsed,
             ),
             Message::FilesPicked(Err(error)) => {
                 println!("Error on files picked: {:?}", error);
 
-                Command::none()
+                Task::none()
             }
             Message::FilesParsed(Ok(data)) => {
                 // save parsed to own state
                 self.parser.set_modpresets(data.to_vec()).unwrap();
 
-                Command::perform(
+                Task::perform(
                     calculate_diff_mods(
                         self.parser.get_modpresets(),
                         self.workshop_subbed_mods.clone(),
@@ -229,20 +222,20 @@ impl Application for Amdu {
             }
             Message::FilesParsed(Err(error)) => {
                 println!("Error on files parsed: {:?}", error);
-                Command::none()
+                Task::none()
             }
             Message::List(index, msg) => {
                 match msg {
                     RowMessage::ToggleSelection(toggle) => {
                         self.mod_selection_list[index].selected = toggle;
-                        Command::none()
+                        Task::none()
                     }
                     RowMessage::ModPressed => {
                         // we do the same as toggle selection
                         self.mod_selection_list[index].selected =
                             !self.mod_selection_list[index].selected;
 
-                        Command::none()
+                        Task::none()
                     }
                 }
             }
@@ -254,7 +247,7 @@ impl Application for Amdu {
                     .filter(|item| item.selected)
                     .count() as u32;
 
-                Command::perform(
+                Task::perform(
                     unsub_selected_mods(
                         self.mod_selection_list.clone(),
                         self.workshop.clone().unwrap(),
@@ -265,7 +258,7 @@ impl Application for Amdu {
             }
             Message::UnsubbedSelectedMods(_) => {
                 self.unsub_in_progress = false;
-                Command::perform(
+                Task::perform(
                     load_subscribed_mods(self.workshop.clone().unwrap()),
                     Message::SubscribedModsFetched,
                 )
@@ -273,7 +266,7 @@ impl Application for Amdu {
             Message::UnsubProgress(_) => {
                 // self.unsub_progress = *progress;
                 // just ticking gui update...
-                Command::none()
+                Task::none()
             }
             Message::ToggleAll => {
                 // toggle state
@@ -284,7 +277,7 @@ impl Application for Amdu {
                     val.selected = self.toggle_all_state;
                 }
 
-                Command::none()
+                Task::none()
             }
         }
     }
@@ -296,90 +289,76 @@ impl Application for Amdu {
                 text("Arma3 Mod Differential Unsubscriber")
                     .width(Length::Fill)
                     .size(40)
-                    .horizontal_alignment(Horizontal::Center)
-                    .vertical_alignment(Vertical::Top),
+                    .align_x(Horizontal::Center)
+                    .align_y(Vertical::Top),
                 text("(Does not include subscribed scenarios)")
                     .width(Length::Fill)
                     .size(15)
-                    .horizontal_alignment(Horizontal::Center)
-                    .vertical_alignment(Vertical::Top),
+                    .align_x(Horizontal::Center)
+                    .align_y(Vertical::Top),
                 horizontal_rule(38),
                 row![text(format!("An Error Occured: {:?}", self.error))
                     .size(30)
-                    .horizontal_alignment(Horizontal::Center)
-                    .vertical_alignment(Vertical::Center)]
+                    .align_x(Horizontal::Center)
+                    .align_y(Vertical::Center)]
                 .spacing(10)
-                .height(Length::FillPortion(400))
-                .align_items(Alignment::Center),
+                .height(Length::FillPortion(400)),
                 row![
-                    horizontal_space(Length::Fill),
+                    horizontal_space(),
                     text(format!("v{}", VERSION))
-                        .vertical_alignment(Vertical::Bottom)
-                        .horizontal_alignment(Horizontal::Right)
+                        .align_y(Vertical::Bottom)
+                        .align_x(Horizontal::Right)
                 ]
-                .align_items(Alignment::End)
             ]
             .spacing(5)
-            .padding(20)
-            .align_items(Alignment::Start);
+            .padding(20);
 
             return container(content)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .center_x()
-                .center_y()
+                .center_x(Length::Fill)
+                .center_y(Length::Fill)
                 .into();
         }
 
         // MAIN CONTENT
         let load_presets = column![
             text("Load presets you wish to keep")
-                .horizontal_alignment(Horizontal::Center)
-                .vertical_alignment(Vertical::Top),
-            vertical_space(15),
+                .align_x(Horizontal::Center)
+                .align_y(Vertical::Top),
+            Space::with_height(Length::Fixed(15.0)),
             button("Load Presets")
                 .padding(10)
                 .on_press(Message::OpenFileDialog),
         ]
-        .padding([5, 5])
-        .align_items(Alignment::Center)
-        .height(150);
+            .padding([5, 5])
+            .align_x(Horizontal::Center)
+            .height(150);
 
         // get loaded presets name only
-        let p_loaded: Vec<String> = self
-            .parser
-            .get_modpresets()
-            .iter()
-            .map(|p| p.name.clone())
-            .collect();
         let scrollable_presets = scrollable(
-            p_loaded.iter().fold(
+            self.parser.get_modpresets().iter().fold(
                 column![]
                     .spacing(6)
-                    // .padding(1)
-                    .align_items(Alignment::Center)
                     .width(Length::Fill),
-                |col, i| col.push(text(i).horizontal_alignment(Horizontal::Center)),
+                |col, i| col.push(text(i.name.clone()).align_x(Horizontal::Center)),
             ),
         )
         .width(Length::Fill)
         .height(100);
-        // .direction(Direction::Vertical(Properties::new().alignment(scrollable::Alignment::Start)))
-        // .height(70);
 
         let presets_loaded = column![
             text("Loaded Presets")
-                .horizontal_alignment(Horizontal::Center)
-                .vertical_alignment(Vertical::Top),
-            vertical_space(2),
+                .width(Length::Fill)
+                .align_x(Horizontal::Center)
+                .align_y(Vertical::Top),
+            vertical_space(),
             horizontal_rule(2),
-            vertical_space(6),
+            vertical_space(),
             scrollable_presets,
         ]
-        .padding([5, 5])
-        .align_items(Alignment::Center)
-        .height(150)
-        .width(Length::FillPortion(200));
+            .padding([5, 5])
+            .align_x(Horizontal::Center)
+            .height(150)
+            .width(Length::FillPortion(200));
 
         // stats
         let selected_mods_count = self
@@ -398,36 +377,33 @@ impl Application for Amdu {
             row![
                 text("Mods subscribed to:").width(Length::FillPortion(5)),
                 text(format!("{:}", self.workshop_subbed_mods.len()))
-                    .horizontal_alignment(Horizontal::Right),
+                    .align_x(Horizontal::Right),
             ]
-            .align_items(Alignment::Start)
+            // .align_items(Alignment::Start)
             .spacing(30),
             row![
                 text("Mods to be removed:").width(Length::FillPortion(5)),
-                text(format!("{:}", selected_mods_count)).horizontal_alignment(Horizontal::Right),
+                text(format!("{:}", selected_mods_count)).align_x(Horizontal::Right),
             ]
-            .align_items(Alignment::Start)
             .spacing(30),
             row![
                 text("Space that will free up:").width(Length::FillPortion(5)),
                 text(format_size(subscribed_mods_local_size_sum, DECIMAL))
-                    .horizontal_alignment(Horizontal::Right),
+                    .align_x(Horizontal::Right),
             ]
-            .align_items(Alignment::Start)
             .spacing(30),
         ]
         .padding([5, 5])
         .spacing(20)
-        .align_items(Alignment::Start)
         .height(150)
         .width(300);
 
         let mut unsub_button = button(
             row![text("Unsub Selected Mods")
                 .width(Length::Fill)
-                .vertical_alignment(Vertical::Center)
-                .horizontal_alignment(Horizontal::Center)]
-            .align_items(Alignment::Center),
+                .height(Length::Fill)
+                .align_y(Vertical::Center)
+                .align_x(Horizontal::Center)],
         )
         .padding([5, 5])
         .width(150)
@@ -461,15 +437,14 @@ impl Application for Amdu {
                     self.unsub_total_count
                 ))
                 .size(30)
-                .horizontal_alignment(Horizontal::Center)
-                .vertical_alignment(Vertical::Top),
+                .align_x(Horizontal::Center)
+                .align_y(Vertical::Top),
                 progress_bar(
                     0.0..=self.unsub_total_count as f32,
                     self.unsub_progress.load(Ordering::Relaxed) as f32
                 )
             ]
             .spacing(5)
-            .align_items(Alignment::Center)
             .padding(10)
             .into(),
         };
@@ -478,8 +453,8 @@ impl Application for Amdu {
             button("Toggle All")
                 .padding(10)
                 .on_press(Message::ToggleAll),
-            horizontal_space(Length::Fill),
-            text(format!("v{}", VERSION)).vertical_alignment(Vertical::Bottom)
+            horizontal_space(),
+            text(format!("v{}", VERSION)).align_y(Vertical::Bottom)
         ]
         .padding(5);
 
@@ -487,13 +462,13 @@ impl Application for Amdu {
             text("Arma3 Mod Differential Unsubscriber")
                 .width(Length::Fill)
                 .size(40)
-                .horizontal_alignment(Horizontal::Center)
-                .vertical_alignment(Vertical::Top),
+                .align_x(Horizontal::Center)
+                .align_y(Vertical::Top),
             text("(Does not include subscribed scenarios)")
                 .width(Length::Fill)
                 .size(15)
-                .horizontal_alignment(Horizontal::Center)
-                .vertical_alignment(Vertical::Top),
+                .align_x(Horizontal::Center)
+                .align_y(Vertical::Top),
             horizontal_rule(38),
             row![
                 load_presets,
@@ -502,29 +477,29 @@ impl Application for Amdu {
                 vertical_rule(2),
                 mods_stats,
                 vertical_rule(2),
-                horizontal_space(5),
+                horizontal_space(),
                 unsub_button,
             ]
             .spacing(8)
-            .align_items(Alignment::Center)
+            // .align_items(Alignment::Center)
             .height(160),
             horizontal_rule(38),
             row![scrollable]
                 .spacing(10)
-                .height(Length::FillPortion(400))
-                .align_items(Alignment::Center),
-            bottom_bar.align_items(Alignment::Start),
+                .height(Length::FillPortion(400)),
+                // .align_items(Alignment::Center), TODO
+            bottom_bar, //.align_items(Alignment::Start),
         ]
         .spacing(5)
-        .padding(20)
-        .align_items(Alignment::Start);
+        .padding(20);
+        // .align_items(Alignment::Start);
 
-        return container(content)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center_x()
-            .center_y()
-            .into();
+        container(content)
+            // .width(Length::Fill)
+            // .height(Length::Fill)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
+            .into()
     }
 
     fn theme(&self) -> Theme {
@@ -637,19 +612,20 @@ async fn unsub_selected_mods(
         progress.fetch_add(1, Ordering::Relaxed);
 
         // await unsub
-        if let Ok(_) = workshop.unsub_from_mod(PublishedFileId(val.id)).await {}
+        if workshop.unsub_from_mod(PublishedFileId(val.id)).await.is_ok() {}
     }
     Ok(())
 }
 
 pub fn main() -> iced::Result {
-    Amdu::run(Settings {
-        exit_on_close_request: false,
-        window: window::Settings {
-            icon: Some(icon::from_file_data(include_bytes!("../gfx/icon.png"), Some(image::ImageFormat::Png)).expect("Failed to load icon")),
-            ..Default::default()
-        },
-        ..Settings::default()
-    })
-
+    iced::application("AMDU", Amdu::update, Amdu::view)
+        .subscription(Amdu::subscription)
+        .theme(Amdu::theme)
+        .window(
+            window::Settings {
+                exit_on_close_request: false,
+                icon: Some(icon::from_file_data(include_bytes!("../gfx/icon.png"), None).expect("Failed to load icon")),
+                ..Default::default()
+            })
+        .run_with(Amdu::new)
 }

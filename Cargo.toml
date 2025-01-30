@@ -6,21 +6,21 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-steamworks = "0.10.0"
-tokio = { version = "1.32", features = ["full", "fs"] }
-html-query-extractor = "0.1.1"
-html-query-ast = "0.1.1"
+steamworks = "0.11.0" # Steamworks SDK 1.58a, newer ones require update due to changed init api
+
+tokio = { version = "1.43", features = ["full", "fs"] }
+html-query-extractor = "0.2.2"
+html-query-ast = "0.2.2"
 serde = { version = "1.0.160", features = ["derive"] }
 serde_json = { version = "1.0.96", default-features = false }
 regex = "1.10.1"
-iced = {version = "0.10.0", features = ["tokio", "image"] }
-rfd = "0.12.0"
+iced = {version = "0.13.1", features = ["tokio", "image"] }
+rfd = "0.15.2"
 tokio-util = "0.7.9"
 humansize = "2.0.0"
-image = "0.24.7"
 
 [build-dependencies]
-embed-resource = "2.4.0"
+embed-resource = "3.0.1"
 
 [target.'cfg(unix)']
 rustflags = ["-C", "link-arg=-Wl,-rpath,$ORIGIN"]
